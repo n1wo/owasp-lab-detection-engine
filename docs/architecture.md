@@ -1,7 +1,8 @@
 # Architecture
 
 This document describes the local lab architecture. The vulnerable app has a
-minimal login implementation; the detection engine is still planned.
+minimal login implementation, and the detection engine currently parses JSONL
+logs for brute-force login detection.
 
 ## Components
 
@@ -19,8 +20,8 @@ should use local/private example values only.
 
 ### Detection Engine
 
-The future Python detection engine will read local JSONL logs, normalize
-events, apply documented detection rules, and emit local findings. It should
+The Python detection engine reads local JSONL logs, normalizes events, applies
+the `AUTH-BRUTE-FORCE-001` detection rule, and emits local findings. It should
 focus on defensive detection behavior rather than offensive instructions.
 
 ### Optional SIEM/Wazuh Export
@@ -35,7 +36,7 @@ flowchart LR
     User["Local learner"] --> App["Vulnerable app<br>localhost only"]
     App --> Logs["Structured JSONL logs"]
     Logs --> Engine["Python detection engine"]
-    Engine --> Findings["Local findings<br>future milestone"]
+    Engine --> Findings["Local findings"]
     Engine -. optional .-> SIEM["Wazuh/SIEM export"]
 ```
 

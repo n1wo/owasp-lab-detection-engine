@@ -22,7 +22,7 @@ lab application.
 
 - A configurable vulnerable web app with safe local-only OWASP-style scenarios
 - Structured JSON or JSONL application logs
-- A Python detection engine for parsing and evaluating log events
+- A Python detection engine for parsing and evaluating login-flow log events
 - Documented detection rules that explain expected signals and status
 - Optional export formats for tools such as Wazuh or a local SIEM
 
@@ -75,8 +75,8 @@ demonstrate:
 - professional security boundaries and responsible-use language
 
 The current state is an initial documentation and structure foundation. The web
-application now includes a minimal local login flow. The detection engine is
-not implemented yet.
+application includes a minimal local login flow, and the detection engine can
+parse local JSONL logs and detect repeated login failures.
 
 ## Local App Usage
 
@@ -120,3 +120,16 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest
 ```
+
+Run the detection engine against generated app logs:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
+Current implemented detection rule:
+
+- `AUTH-BRUTE-FORCE-001` - alerts on 5 or more `login_failure` events for the
+  same `source_ip` and `username` within 5 minutes

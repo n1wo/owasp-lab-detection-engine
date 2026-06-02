@@ -22,7 +22,7 @@ These commands are planned for the future implementation. They may not work yet.
 ```bash
 docker compose up --build
 pytest
-python -m detection_engine
+cd detection-engine && python -m detection_engine --log-file ../logs/application.jsonl
 ```
 
 ## Testing Rules
