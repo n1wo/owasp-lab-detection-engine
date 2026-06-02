@@ -15,8 +15,25 @@ and emits structured logs for login outcomes.
 ### Structured Logs
 
 The app writes JSONL events containing fields such as timestamp,
-event type, source IP, username, path, status code, and a short message. Logs
-should use local/private example values only.
+event type, source IP, username, user agent, request path, HTTP method, status
+code, lab mode, reason, and session ID. Logs should use local/private example
+values only.
+
+Current login telemetry schema:
+
+| Field | Description |
+| --- | --- |
+| `timestamp` | UTC ISO-8601 event timestamp |
+| `event_type` | `login_success`, `login_failure`, `account_lockout`, or `access_denied` |
+| `source_ip` | Local/private client address |
+| `username` | Fictional local lab username |
+| `user_agent` | Client user-agent string, when provided |
+| `request_path` | HTTP path that produced the event |
+| `http_method` | HTTP method such as `POST` or `GET` |
+| `status_code` | HTTP response status code |
+| `lab_mode` | `insecure` or `secure` |
+| `reason` | Short machine-readable reason |
+| `session_id` | Fake/local session identifier when available, otherwise `null` |
 
 ### Detection Engine
 

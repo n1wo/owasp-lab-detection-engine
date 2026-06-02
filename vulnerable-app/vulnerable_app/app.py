@@ -83,7 +83,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         if settings.mode == "secure" and _is_locked(failure_tracker, source_ip, username):
             _log_login_event(
                 logger,
-                event_type="login_blocked",
+                event_type="account_lockout",
                 request_id=request_id,
                 source_ip=source_ip,
                 username=username,
@@ -221,14 +221,17 @@ def _log_login_event(
     logger.write(
         {
             "event_type": event_type,
-            "mode": current_app.config["LAB_MODE"],
-            "request_id": request_id,
             "source_ip": source_ip or "127.0.0.1",
             "username": username or "anonymous",
-            "path": request.path,
+            "user_agent": request.headers.get("User-Agent", ""),
+            "request_path": request.path,
+            "http_method": request.method,
             "status_code": status_code,
-            "success": success,
+            "lab_mode": current_app.config["LAB_MODE"],
             "reason": reason,
+            "session_id": None,
+            "request_id": request_id,
+            "success": success,
         }
     )
 

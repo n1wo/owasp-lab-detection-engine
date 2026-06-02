@@ -23,6 +23,9 @@ Input events:
 - `username` identifies the fictional lab account being attempted
 - `timestamp` is an ISO-8601 timestamp
 
+The parser preserves the full raw event and ignores unknown additional fields
+for this rule.
+
 Threshold:
 
 - 5 or more matching failures

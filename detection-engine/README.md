@@ -13,6 +13,7 @@ Current responsibilities:
 - evaluate brute-force login detection logic for local lab scenarios
 - report findings in a clear local output format
 - report malformed JSONL lines safely without stopping valid parsing
+- ignore unknown additional log fields safely while preserving the raw event
 
 Future responsibilities:
 

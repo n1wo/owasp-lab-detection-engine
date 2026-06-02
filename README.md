@@ -106,6 +106,22 @@ Structured application logs are written to:
 logs/application.jsonl
 ```
 
+Current login telemetry schema:
+
+| Field | Description |
+| --- | --- |
+| `timestamp` | UTC ISO-8601 event timestamp |
+| `event_type` | One of `login_success`, `login_failure`, `account_lockout`, or `access_denied` |
+| `source_ip` | Local/private client address, normally `127.0.0.1` |
+| `username` | Fictional local lab username |
+| `user_agent` | Client user-agent string, when provided |
+| `request_path` | HTTP path that produced the event |
+| `http_method` | HTTP method such as `POST` or `GET` |
+| `status_code` | HTTP response status code |
+| `lab_mode` | `insecure` or `secure` |
+| `reason` | Short machine-readable reason for the event |
+| `session_id` | Fake/local session identifier when available, otherwise `null` |
+
 The current demo credentials are fictional local lab users only:
 
 ```text

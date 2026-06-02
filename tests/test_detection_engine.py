@@ -27,8 +27,13 @@ def login_failure(source_ip="127.0.0.1", username="test-user", minute=0):
         "event_type": "login_failure",
         "source_ip": source_ip,
         "username": username,
-        "path": "/login",
+        "user_agent": "pytest-local",
+        "request_path": "/login",
+        "http_method": "POST",
         "status_code": 401,
+        "lab_mode": "insecure",
+        "reason": "invalid_credentials",
+        "session_id": None,
     }
 
 
@@ -54,6 +59,13 @@ def test_parser_loads_valid_jsonl(tmp_path):
                 "event_type": "login_success",
                 "source_ip": "127.0.0.1",
                 "username": "test-user",
+                "user_agent": "pytest-local",
+                "request_path": "/login",
+                "http_method": "POST",
+                "status_code": 302,
+                "lab_mode": "secure",
+                "reason": "valid_credentials",
+                "session_id": "fake-session-001",
             },
         ],
     )
@@ -64,6 +76,7 @@ def test_parser_loads_valid_jsonl(tmp_path):
     assert len(result.events) == 2
     assert result.events[0].event_type == "login_failure"
     assert result.events[0].source_ip == "127.0.0.1"
+    assert result.events[0].raw["request_path"] == "/login"
 
 
 def test_parser_reports_invalid_jsonl_without_dropping_valid_events(tmp_path):
@@ -83,6 +96,20 @@ def test_parser_reports_invalid_jsonl_without_dropping_valid_events(tmp_path):
     assert len(result.errors) == 2
     assert result.errors[0].line_number == 2
     assert result.errors[1].line_number == 3
+
+
+def test_parser_ignores_unknown_additional_fields(tmp_path):
+    log_file = tmp_path / "application.jsonl"
+    record = login_failure(minute=0)
+    record["unexpected_future_field"] = "safe-local-value"
+    write_jsonl(log_file, [record])
+
+    result = load_jsonl(log_file)
+
+    assert result.errors == []
+    assert len(result.events) == 1
+    assert result.events[0].event_type == "login_failure"
+    assert result.events[0].raw["unexpected_future_field"] == "safe-local-value"
 
 
 def test_brute_force_rule_triggers_on_five_failures_within_window():
@@ -136,4 +163,3 @@ def test_brute_force_grouping_triggers_for_matching_group_only():
     assert len(findings) == 1
     assert findings[0].source_ip == "127.0.0.1"
     assert findings[0].username == "test-user"
-

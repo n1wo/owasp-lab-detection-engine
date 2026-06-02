@@ -12,6 +12,21 @@ sys.path.insert(0, str(VULNERABLE_APP_ROOT))
 from vulnerable_app import create_app  # noqa: E402
 
 
+REQUIRED_LOGIN_FIELDS = {
+    "timestamp",
+    "event_type",
+    "source_ip",
+    "username",
+    "user_agent",
+    "request_path",
+    "http_method",
+    "status_code",
+    "lab_mode",
+    "reason",
+    "session_id",
+}
+
+
 def read_jsonl(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
@@ -39,10 +54,14 @@ def test_insecure_login_failure_uses_lab_specific_message_and_logs(tmp_path):
 
     events = read_jsonl(log_file)
     assert len(events) == 1
+    assert REQUIRED_LOGIN_FIELDS.issubset(events[0])
     assert events[0]["event_type"] == "login_failure"
-    assert events[0]["mode"] == "insecure"
+    assert events[0]["lab_mode"] == "insecure"
     assert events[0]["reason"] == "unknown_user"
     assert events[0]["source_ip"] == "127.0.0.1"
+    assert events[0]["request_path"] == "/login"
+    assert events[0]["http_method"] == "POST"
+    assert events[0]["session_id"] is None
 
 
 def test_successful_login_redirects_and_logs(tmp_path):
@@ -58,9 +77,12 @@ def test_successful_login_redirects_and_logs(tmp_path):
     assert response.headers["Location"].endswith("/dashboard?username=test-user")
 
     events = read_jsonl(log_file)
+    assert REQUIRED_LOGIN_FIELDS.issubset(events[0])
     assert events[0]["event_type"] == "login_success"
     assert events[0]["success"] is True
     assert events[0]["username"] == "test-user"
+    assert events[0]["lab_mode"] == "secure"
+    assert events[0]["request_path"] == "/login"
 
 
 def test_secure_mode_blocks_after_repeated_failures(tmp_path):
@@ -85,5 +107,5 @@ def test_secure_mode_blocks_after_repeated_failures(tmp_path):
     assert b"Too many failed attempts" in blocked.data
 
     events = read_jsonl(log_file)
-    assert [event["event_type"] for event in events][-1] == "login_blocked"
+    assert [event["event_type"] for event in events][-1] == "account_lockout"
     assert events[-1]["reason"] == "too_many_failures"
