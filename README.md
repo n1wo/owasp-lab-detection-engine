@@ -1,178 +1,365 @@
 # OWASP Lab Detection Engine
 
-OWASP Lab Detection Engine is a local cybersecurity learning lab that
-combines a deliberately vulnerable web application with structured logging and
-a Python-based detection engine.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![Flask](https://img.shields.io/badge/Flask-3.0-lightgrey)
+![Pytest](https://img.shields.io/badge/tests-pytest-brightgreen)
+![License MIT](https://img.shields.io/badge/license-MIT-green)
+![Local Lab](https://img.shields.io/badge/scope-local--lab-orange)
 
-The project is intended to demonstrate how common web application weaknesses can
-be represented in application logs, parsed consistently, and mapped to
-documented detection rules. It is designed for local education, portfolio work,
-and defensive security practice.
+OWASP Lab Detection Engine is a local-only cybersecurity learning lab that
+combines a deliberately vulnerable Flask web app, structured JSONL security
+telemetry, a Python detection engine, and a reproducible brute-force demo
+workflow.
 
-## Safety Warning
+The project currently focuses on the login brute-force scenario and detects
+repeated failed login attempts with `AUTH-BRUTE-FORCE-001`.
 
-This repository is for local educational use only.
+> **Safety warning:** This project contains intentionally vulnerable examples
+> for local educational use only. Do not deploy it to the public internet and
+> do not use the demo scripts or detection logic against third-party systems.
 
-The vulnerable application must not be deployed publicly, exposed to the
-internet, or used as a target model for third-party systems. All examples,
-payloads, logs, and detection rules in this project must target only the local
-lab application.
+## Overview
 
-## Planned Lab Components
+This project demonstrates:
 
-- A configurable vulnerable web app with safe local-only OWASP-style scenarios
-- Structured JSON or JSONL application logs
-- A Python detection engine for parsing and evaluating login-flow log events
-- Documented detection rules that explain expected signals and status
-- Optional export formats for tools such as Wazuh or a local SIEM
+- secure vs insecure behavior through `LAB_MODE`
+- structured security logging from a local Flask app
+- safe JSONL parsing with recoverable parse errors
+- basic detection engineering with a documented rule
+- CLI findings in human-readable and JSON formats
+- reproducible localhost-only demo activity
+- pytest coverage for app behavior, parsing, rules, and demo safety checks
 
-## Intended Learning Goals
+## Features
 
-- Understand how vulnerable web application behavior appears in logs
-- Practice writing structured logs that support detection engineering
-- Build a small Python parser for JSONL security telemetry
-- Translate application behavior into documented detection rules
-- Compare vulnerable and secure implementation modes in a controlled lab
-- Learn how defensive detections can be tested without targeting real systems
+- [x] Minimal Flask vulnerable app
+- [x] Login page
+- [x] `LAB_MODE=insecure|secure`
+- [x] Insecure mode allows repeated login attempts
+- [x] Secure mode uses generic errors and simple lockout behavior
+- [x] JSONL telemetry written to `logs/application.jsonl`
+- [x] Python JSONL parser
+- [x] Detection rule `AUTH-BRUTE-FORCE-001`
+- [x] CLI with human-readable and JSON output
+- [x] Reproducible localhost-only demo script
+- [x] pytest coverage
 
-## Planned Roadmap
+## Architecture Overview
 
-1. Project structure and documentation
-2. Basic vulnerable login flow
-3. Structured application logging
-4. Python log parser
-5. Detection rules for brute force, SQL injection-like input, XSS-like input,
-   and broken access control
-6. Docker Compose local lab
-7. Optional Wazuh/SIEM export format
+| Component | Purpose | Path |
+| --- | --- | --- |
+| Vulnerable App | Local Flask app that generates login telemetry | `vulnerable-app/` |
+| Logs | JSONL security telemetry | `logs/` |
+| Detection Engine | Parses logs and produces findings | `detection-engine/` |
+| Demo Script | Generates local brute-force demo activity | `scripts/` |
+| Documentation | Architecture, detection rules, demo walkthrough | `docs/` |
+| Tests | App, parser, detection, and demo tests | `tests/` |
 
-## Repository Structure
+```mermaid
+flowchart LR
+    A["Local Reviewer"] --> B["Flask Vulnerable App"]
+    B --> C["logs/application.jsonl"]
+    C --> D["Python Detection Engine"]
+    D --> E["Human/JSON Findings"]
+```
+
+## Project Structure
 
 ```text
 .
-|-- vulnerable-app/       # Local vulnerable web application
-|-- detection-engine/     # Future Python detection engine
-|-- logs/                 # Sample and generated JSONL logs
-|-- docs/                 # Architecture, threat model, and detection rules
-|-- tests/                # Pytest coverage for implemented behavior
-|-- docker-compose.yml    # Local vulnerable-app orchestration
-|-- AGENTS.md             # Guidance for future AI/code agents
-|-- SECURITY.md           # Responsible local-use policy
+|-- AGENTS.md                         # Guidance for future AI/code agents
+|-- README.md                         # Project overview and runbook
+|-- SECURITY.md                       # Responsible-use policy
+|-- docker-compose.yml                # Local Flask app orchestration
+|-- requirements-dev.txt              # Test/runtime dependency entry point
+|-- detection-engine/                 # Python detection engine package
+|   |-- README.md
+|   `-- detection_engine/
+|-- docs/                             # Architecture, demo, rules, threat model
+|   |-- architecture.md
+|   |-- demo.md
+|   |-- detection-rules.md
+|   `-- threat-model.md
+|-- logs/                             # Sample and generated JSONL telemetry
+|   |-- README.md
+|   `-- sample-logs.jsonl
+|-- scripts/                          # Local-only demo helpers
+|   `-- generate_login_demo.py
+|-- tests/                            # pytest test suite
+`-- vulnerable-app/                   # Local Flask vulnerable app
+    |-- Dockerfile
+    |-- README.md
+    |-- requirements.txt
+    `-- vulnerable_app/
 ```
 
-## Portfolio Relevance
+## Requirements
 
-This project is intended to show practical defensive security engineering
-skills without overclaiming production readiness. When implemented, it should
-demonstrate:
+- Python 3.10+
+- `pip`
+- Docker / Docker Compose, optional but recommended for running the Flask app
+- pytest, installed through `requirements-dev.txt`
 
-- secure documentation of intentionally vulnerable examples
-- application logging design for detection use cases
-- Python log parsing and rule evaluation
-- clear separation between vulnerable behavior, secure behavior, and detection
-  logic
-- local lab orchestration with Docker Compose
-- professional security boundaries and responsible-use language
+Docker may be unavailable in some shells. The Python test suite is the main
+validation path for this repository.
 
-The current state is an initial documentation and structure foundation. The web
-application includes a minimal local login flow, and the detection engine can
-parse local JSONL logs and detect repeated login failures.
+## Quick Start: Copy & Paste
 
-## Local App Usage
-
-The vulnerable app is intended to run on `127.0.0.1:8080` only.
-
-Start the local lab app:
+### Step 1: Clone The Repository
 
 ```bash
-docker compose up --build
+git clone https://github.com/n1wo/owasp-lab-detection-engine.git
+cd owasp-lab-detection-engine
 ```
 
-Choose the mode with `LAB_MODE`:
+### Step 2: Create And Activate A Virtual Environment
 
-```bash
-LAB_MODE=insecure docker compose up --build
-LAB_MODE=secure docker compose up --build
+Windows PowerShell:
+
+```powershell
+py -m venv .venv
+.venv\Scripts\activate
 ```
 
-Supported modes:
-
-- `insecure` - intentionally weak local lab behavior for observing logs
-- `secure` - basic safer comparison behavior and simple login lockout
-
-Structured application logs are written to:
-
-```text
-logs/application.jsonl
-```
-
-Current login telemetry schema:
-
-| Field | Description |
-| --- | --- |
-| `timestamp` | UTC ISO-8601 event timestamp |
-| `event_type` | One of `login_success`, `login_failure`, `account_lockout`, or `access_denied` |
-| `source_ip` | Local/private client address, normally `127.0.0.1` |
-| `username` | Fictional local lab username |
-| `user_agent` | Client user-agent string, when provided |
-| `request_path` | HTTP path that produced the event |
-| `http_method` | HTTP method such as `POST` or `GET` |
-| `status_code` | HTTP response status code |
-| `lab_mode` | `insecure` or `secure` |
-| `reason` | Short machine-readable reason for the event |
-| `session_id` | Fake/local session identifier when available, otherwise `null` |
-
-The current demo credentials are fictional local lab users only:
-
-```text
-test-user / lab-password
-admin / admin-password
-```
-
-Run the current tests:
+macOS/Linux:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python -m pytest
+source .venv/bin/activate
 ```
 
-Run the detection engine against generated app logs:
+### Step 3: Install Dependencies
 
 ```bash
-cd detection-engine
-python -m detection_engine --log-file ../logs/application.jsonl
-python -m detection_engine --log-file ../logs/application.jsonl --json
+python -m pip install -r requirements-dev.txt
 ```
 
-Current implemented detection rule:
+This installs the Flask runtime dependency from `vulnerable-app/requirements.txt`
+and pytest for the test suite.
 
-- `AUTH-BRUTE-FORCE-001` - alerts on 5 or more `login_failure` events for the
-  same `source_ip` and `username` within 5 minutes
+### Step 4: Run Tests
 
-## Quick Demo
+```bash
+python -m pytest
+```
 
-This demo stays local and generates repeated failed login attempts against the
-lab app so the current brute-force detection rule triggers.
+Current expected result:
 
-Start the app:
+```text
+16 passed
+```
+
+## Run The Lab Locally
+
+Start the vulnerable Flask app with Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
-In another terminal, generate demo login activity:
+The app binds to the local loopback interface and should be available at:
+
+```text
+http://localhost:8080
+```
+
+The default mode is `LAB_MODE=insecure`. To run secure comparison mode:
+
+```bash
+LAB_MODE=secure docker compose up --build
+```
+
+## Generate Demo Activity
+
+In another terminal from the repository root:
 
 ```bash
 python scripts/generate_login_demo.py
 ```
 
-Run the detection engine:
+The demo script:
+
+- only targets `localhost` / `127.0.0.1`
+- sends 5 failed login attempts for `test-user`
+- sends one successful login attempt by default
+- writes JSONL login telemetry to `logs/application.jsonl`
+- is designed to trigger `AUTH-BRUTE-FORCE-001`
+
+## Inspect Generated Logs
+
+macOS/Linux:
 
 ```bash
+tail -n 10 logs/application.jsonl
+```
+
+Windows PowerShell:
+
+```powershell
+Get-Content logs/application.jsonl -Tail 10
+```
+
+Each login event includes fields such as `timestamp`, `event_type`,
+`source_ip`, `username`, `user_agent`, `request_path`, `http_method`,
+`status_code`, `lab_mode`, `reason`, and `session_id`.
+
+## Run The Detection Engine
+
+From the repository root:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+```
+
+JSON output:
+
+```bash
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
+Expected finding:
+
+- Rule: `AUTH-BRUTE-FORCE-001`
+- Trigger: 5 or more `login_failure` events for the same `source_ip` and
+  `username` within 5 minutes
+
+## Full Demo Flow
+
+macOS/Linux:
+
+```bash
+git clone https://github.com/n1wo/owasp-lab-detection-engine.git
+cd owasp-lab-detection-engine
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m pytest
+docker compose up --build
+```
+
+In a second terminal, from the repository root:
+
+```bash
+source .venv/bin/activate
+python scripts/generate_login_demo.py
 cd detection-engine
 python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
-For a fuller walkthrough, see `docs/demo.md`.
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/n1wo/owasp-lab-detection-engine.git
+cd owasp-lab-detection-engine
+py -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r requirements-dev.txt
+python -m pytest
+docker compose up --build
+```
+
+In a second PowerShell terminal, from the repository root:
+
+```powershell
+.venv\Scripts\activate
+python scripts/generate_login_demo.py
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
+## Detection Rules
+
+| Rule ID | Goal | Signal | Severity | Status |
+| --- | --- | --- | --- | --- |
+| `AUTH-BRUTE-FORCE-001` | Detect repeated login failures | 5 `login_failure` events for same `source_ip` + `username` within 5 minutes | Medium | Implemented |
+| `WEB-SQLI-PATTERN-001` | Detect SQL injection-like local lab input | Future `suspicious_input` telemetry | Medium | Planned |
+| `WEB-XSS-PATTERN-001` | Detect XSS-like local lab input | Future `suspicious_input` telemetry | Medium | Planned |
+| `WEB-BROKEN-ACCESS-001` | Detect broken access control behavior | Future local access-control telemetry | High | Planned |
+
+## Log Schema
+
+| Field | Description | Example |
+| --- | --- | --- |
+| `timestamp` | UTC ISO-8601 event timestamp | `2026-06-02T09:00:00Z` |
+| `app` | Application name | `vulnerable-app` |
+| `environment` | Lab environment label | `local-lab` |
+| `event_type` | Login event type | `login_failure` |
+| `source_ip` | Local/private client address | `127.0.0.1` |
+| `username` | Fictional lab username | `test-user` |
+| `user_agent` | Client user-agent string | `owasp-lab-demo/1.0` |
+| `request_path` | HTTP request path | `/login` |
+| `http_method` | HTTP method | `POST` |
+| `status_code` | HTTP response status code | `401` |
+| `lab_mode` | App behavior mode | `insecure` |
+| `reason` | Machine-readable event reason | `bad_password` |
+| `session_id` | Fake/local session ID or null | `null` |
+| `request_id` | Per-request identifier | `fake-request-001` |
+| `success` | Whether login succeeded | `false` |
+
+Supported current `event_type` values:
+
+- `login_success`
+- `login_failure`
+- `account_lockout`
+- `access_denied`
+
+## Running Tests
+
+```bash
+python -m pytest
+```
+
+Current test coverage includes:
+
+- Flask app behavior
+- secure/insecure login behavior
+- structured JSONL logging
+- JSONL parser
+- invalid JSONL handling
+- brute-force detection rule
+- demo script safety checks
+- localhost-only validation
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Demo Walkthrough](docs/demo.md)
+- [Detection Rules](docs/detection-rules.md)
+- [Threat Model](docs/threat-model.md)
+- [Security Policy](SECURITY.md)
+- [Agent Guidance](AGENTS.md)
+
+## Roadmap
+
+Completed:
+
+- [x] project structure and documentation
+- [x] minimal Flask login scenario
+- [x] structured login telemetry
+- [x] Python JSONL parser
+- [x] `AUTH-BRUTE-FORCE-001`
+- [x] reproducible brute-force demo workflow
+
+Planned:
+
+- [ ] SQL injection-style local learning scenario
+- [ ] XSS-style local learning scenario
+- [ ] broken access control scenario
+- [ ] optional SIEM/Wazuh export format
+- [ ] richer reporting
+
+## Portfolio Relevance
+
+This project demonstrates practical Python and Flask development, structured
+security telemetry, JSONL log parsing, basic detection engineering, CLI output
+design, pytest coverage, and careful documentation for a safe local lab. It is
+intended to show a responsible security mindset without presenting the project
+as a production monitoring system.
+
+## Responsible Use
+
+This lab is intentionally vulnerable and must remain local. It is intended for
+learning defensive security concepts, telemetry, and detection engineering.
