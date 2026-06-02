@@ -9,6 +9,15 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 import generate_login_demo as demo  # noqa: E402
 
 
+class FakeResponse:
+    status = 401
+
+
+class FakeOpener:
+    def open(self, request, timeout=3.0):
+        return FakeResponse()
+
+
 def test_validate_local_base_url_allows_localhost_and_loopback():
     assert demo.validate_local_base_url("http://localhost:8080") == "http://localhost:8080"
     assert demo.validate_local_base_url("http://127.0.0.1:8080/") == "http://127.0.0.1:8080"
@@ -44,6 +53,25 @@ def test_build_demo_attempts_can_skip_success():
     assert all(not attempt.expected_success for attempt in attempts)
 
 
+def test_send_login_attempts_builds_opener_with_handler_instance(monkeypatch):
+    observed_handlers = []
+
+    def fake_build_opener(*handlers):
+        observed_handlers.extend(handlers)
+        return FakeOpener()
+
+    monkeypatch.setattr(demo, "build_opener", fake_build_opener)
+
+    statuses = demo.send_login_attempts(
+        "http://127.0.0.1:8080",
+        [demo.LoginAttempt("test-user", "wrong-local-demo-password", expected_success=False)],
+    )
+
+    assert statuses == [401]
+    assert len(observed_handlers) == 1
+    assert isinstance(observed_handlers[0], demo.NoRedirectHandler)
+
+
 def test_main_prints_helpful_message_when_app_is_unavailable(monkeypatch, capsys):
     monkeypatch.setattr(demo, "app_is_available", lambda base_url, timeout=3.0: False)
 
@@ -52,4 +80,3 @@ def test_main_prints_helpful_message_when_app_is_unavailable(monkeypatch, capsys
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "Start it first with: docker compose up --build" in captured.err
-

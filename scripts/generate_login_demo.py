@@ -78,7 +78,7 @@ def app_is_available(base_url: str, timeout: float = 3.0) -> bool:
 
 
 def send_login_attempts(base_url: str, attempts: list[LoginAttempt], timeout: float = 3.0) -> list[int]:
-    opener = build_opener(NoRedirectHandler)
+    opener = build_opener(NoRedirectHandler())
     statuses: list[int] = []
     login_url = f"{base_url}/login"
 
@@ -160,4 +160,3 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
