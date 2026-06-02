@@ -149,3 +149,30 @@ Current implemented detection rule:
 
 - `AUTH-BRUTE-FORCE-001` - alerts on 5 or more `login_failure` events for the
   same `source_ip` and `username` within 5 minutes
+
+## Quick Demo
+
+This demo stays local and generates repeated failed login attempts against the
+lab app so the current brute-force detection rule triggers.
+
+Start the app:
+
+```bash
+docker compose up --build
+```
+
+In another terminal, generate demo login activity:
+
+```bash
+python scripts/generate_login_demo.py
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
+For a fuller walkthrough, see `docs/demo.md`.

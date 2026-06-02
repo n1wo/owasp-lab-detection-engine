@@ -55,3 +55,13 @@ cd detection-engine && python -m detection_engine --log-file ../logs/application
   and fake paths.
 - Avoid real exploit targets, real credentials, and real external services.
 - Mark placeholders clearly when functionality is not implemented yet.
+
+## Demo Script Rules
+
+- Demo scripts must only target `localhost` or `127.0.0.1`.
+- Do not modify demo scripts to send traffic to third-party systems, public
+  websites, real services, or non-local network ranges.
+- Demo scripts should fail safely with clear instructions when the local lab app
+  is not running.
+- Keep demo payloads fictional, local, and limited to the implemented lab
+  scenario.

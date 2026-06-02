@@ -12,5 +12,5 @@ services:
     volumes:
       - ./logs:/app/logs
 
-# detection-engine is intentionally not implemented yet.
-# It will be added in a later milestone after the app emits stable logs.
+# The detection engine runs as a local Python CLI for now:
+# cd detection-engine && python -m detection_engine --log-file ../logs/application.jsonl
