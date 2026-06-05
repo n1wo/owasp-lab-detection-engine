@@ -1,3 +1,5 @@
+<!-- Intro: Walkthrough for generating local login activity and detecting brute-force behavior. -->
+
 # Brute-Force Login Demo
 
 This demo shows how the local lab produces login telemetry and how the

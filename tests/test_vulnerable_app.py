@@ -1,3 +1,5 @@
+"""Tests for vulnerable-app login modes and structured telemetry."""
+
 import json
 import sys
 from pathlib import Path
@@ -28,10 +30,14 @@ REQUIRED_LOGIN_FIELDS = {
 
 
 def read_jsonl(path):
+    """Read every JSONL line from a test log file into dictionaries."""
+
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
 def test_health_reports_configured_mode(tmp_path):
+    """Verify /health reports both readiness and the configured lab mode."""
+
     app = create_app({"LAB_MODE": "secure", "LAB_LOG_FILE": tmp_path / "app.jsonl"})
 
     response = app.test_client().get("/health")
@@ -41,6 +47,8 @@ def test_health_reports_configured_mode(tmp_path):
 
 
 def test_insecure_login_failure_uses_lab_specific_message_and_logs(tmp_path):
+    """Verify insecure mode exposes lab-specific errors and logs telemetry."""
+
     log_file = tmp_path / "app.jsonl"
     app = create_app({"LAB_MODE": "insecure", "LAB_LOG_FILE": log_file})
 
@@ -65,6 +73,8 @@ def test_insecure_login_failure_uses_lab_specific_message_and_logs(tmp_path):
 
 
 def test_successful_login_redirects_and_logs(tmp_path):
+    """Verify successful login redirects and emits a login_success event."""
+
     log_file = tmp_path / "app.jsonl"
     app = create_app({"LAB_MODE": "secure", "LAB_LOG_FILE": log_file})
 
@@ -86,6 +96,8 @@ def test_successful_login_redirects_and_logs(tmp_path):
 
 
 def test_secure_mode_blocks_after_repeated_failures(tmp_path):
+    """Verify secure mode locks a source/user pair after repeated failures."""
+
     log_file = tmp_path / "app.jsonl"
     app = create_app({"LAB_MODE": "secure", "LAB_LOG_FILE": log_file})
     client = app.test_client()

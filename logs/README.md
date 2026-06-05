@@ -1,3 +1,5 @@
+<!-- Intro: Guidance for safe fictional JSONL log files used by the lab. -->
+
 # Logs
 
 This folder stores sample and future generated JSONL logs from the local lab

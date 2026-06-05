@@ -1,3 +1,5 @@
+<!-- Intro: Scope, assumptions, and safety boundary for the local lab scenarios. -->
+
 # Threat Model
 
 This project models security scenarios inside a local educational lab only. It

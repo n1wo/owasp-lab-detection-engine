@@ -1,3 +1,5 @@
+<!-- Intro: Overview of the local Flask vulnerable app and its lab-only behavior. -->
+
 # Vulnerable App
 
 This folder contains the local-only vulnerable web application.

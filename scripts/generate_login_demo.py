@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
+"""Generate localhost-only login activity for the brute-force detection demo."""
+
 from __future__ import annotations
 
 import argparse
 import sys
 from dataclasses import dataclass
 from http.client import HTTPConnection, HTTPSConnection
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 ALLOWED_HOSTS = {"localhost", "127.0.0.1"}
@@ -25,10 +27,12 @@ class LoginAttempt:
     expected_success: bool
 
 
-class NoRedirectHandler:
+class NoRedirectHandler(HTTPRedirectHandler):
     """Keep login_success visible as a 302 instead of following /dashboard."""
 
     def http_error_302(self, req, fp, code, msg, headers):  # noqa: N802
+        """Return redirect responses directly so the demo can record status 302."""
+
         return fp
 
     http_error_301 = http_error_302
@@ -38,6 +42,8 @@ class NoRedirectHandler:
 
 
 def validate_local_base_url(base_url: str) -> str:
+    """Accept only localhost HTTP app roots and return a normalized base URL."""
+
     parsed = urlparse(base_url)
     if parsed.scheme != "http":
         raise ValueError("Demo target must use http:// with localhost or 127.0.0.1.")
@@ -49,6 +55,8 @@ def validate_local_base_url(base_url: str) -> str:
 
 
 def build_demo_attempts(include_success: bool = True) -> list[LoginAttempt]:
+    """Create the fixed login attempt sequence used by the brute-force demo."""
+
     attempts = [
         LoginAttempt(DEMO_USERNAME, DEMO_PASSWORD, expected_success=False)
         for _ in range(5)
@@ -59,6 +67,8 @@ def build_demo_attempts(include_success: bool = True) -> list[LoginAttempt]:
 
 
 def app_is_available(base_url: str, timeout: float = 3.0) -> bool:
+    """Check whether the local lab app responds successfully on /health."""
+
     parsed = urlparse(base_url)
     connection_cls = HTTPSConnection if parsed.scheme == "https" else HTTPConnection
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -78,6 +88,8 @@ def app_is_available(base_url: str, timeout: float = 3.0) -> bool:
 
 
 def send_login_attempts(base_url: str, attempts: list[LoginAttempt], timeout: float = 3.0) -> list[int]:
+    """Send demo login requests and collect normal or expected error statuses."""
+
     opener = build_opener(NoRedirectHandler())
     statuses: list[int] = []
     login_url = f"{base_url}/login"
@@ -96,6 +108,8 @@ def send_login_attempts(base_url: str, attempts: list[LoginAttempt], timeout: fl
         try:
             response = opener.open(request, timeout=timeout)
             statuses.append(response.status)
+        except HTTPError as exc:
+            statuses.append(exc.code)
         except URLError as exc:
             raise RuntimeError(f"Could not send demo login attempt: {exc}") from exc
 
@@ -103,6 +117,8 @@ def send_login_attempts(base_url: str, attempts: list[LoginAttempt], timeout: fl
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the localhost-only login activity generator from the command line."""
+
     args = parse_args(argv)
     try:
         base_url = validate_local_base_url(args.base_url)
@@ -136,6 +152,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    """Parse command-line options for the demo activity generator."""
+
     parser = argparse.ArgumentParser(
         description="Generate local login activity for the AUTH-BRUTE-FORCE-001 demo."
     )

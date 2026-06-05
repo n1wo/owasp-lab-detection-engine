@@ -1,3 +1,5 @@
+<!-- Intro: Catalog of implemented and planned local-lab detection rules. -->
+
 # Detection Rules
 
 This document tracks detection rules for the local lab. Rules should remain

@@ -1,3 +1,5 @@
+"""Flask routes, lab settings, and telemetry for the local vulnerable app."""
+
 from __future__ import annotations
 
 import hmac
@@ -35,10 +37,14 @@ class JsonlLogger:
     """Append one structured JSON object per line for local detection work."""
 
     def __init__(self, log_file: Path):
+        """Remember the target JSONL file and create a lock for safe appends."""
+
         self.log_file = log_file
         self._lock = Lock()
 
     def write(self, event: dict[str, Any]) -> None:
+        """Append one enriched security telemetry event to the JSONL log file."""
+
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         record = {
             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -71,10 +77,14 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.get("/")
     def index() -> Response | str:
+        """Render the login form for the current lab mode."""
+
         return render_template_string(LOGIN_TEMPLATE, mode=settings.mode, message=None)
 
     @app.post("/login")
     def login() -> Response | str:
+        """Process a login attempt, emit telemetry, and enforce mode behavior."""
+
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         source_ip = _source_ip()
@@ -136,17 +146,23 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.get("/dashboard")
     def dashboard() -> str:
+        """Render a simple local dashboard after a successful lab login."""
+
         username = request.args.get("username", "test-user")
         return render_template_string(DASHBOARD_TEMPLATE, username=username, mode=settings.mode)
 
     @app.get("/health")
     def health() -> dict[str, str]:
+        """Return a small readiness response with the configured lab mode."""
+
         return {"status": "ok", "mode": settings.mode}
 
     return app
 
 
 def load_settings(test_config: dict[str, Any] | None = None) -> LabSettings:
+    """Load lab settings from tests or environment variables."""
+
     test_config = test_config or {}
     mode = str(test_config.get("LAB_MODE") or os.environ.get("LAB_MODE", "insecure")).lower()
     if mode not in ALLOWED_MODES:
@@ -159,6 +175,8 @@ def load_settings(test_config: dict[str, Any] | None = None) -> LabSettings:
 
 
 def _valid_credentials(username: str, password: str, mode: str) -> bool:
+    """Check fictional lab credentials using the comparison for the active mode."""
+
     expected = VALID_USERS.get(username)
     if expected is None:
         if mode == "secure":
@@ -184,6 +202,8 @@ def _record_failure(
     source_ip: str,
     username: str,
 ) -> None:
+    """Store a recent failed login timestamp for secure-mode lockout checks."""
+
     now = time.time()
     key = (source_ip, username)
     recent = [ts for ts in failure_tracker.get(key, []) if now - ts <= LOCKOUT_WINDOW_SECONDS]
@@ -196,6 +216,8 @@ def _is_locked(
     source_ip: str,
     username: str,
 ) -> bool:
+    """Return whether a source/user pair has reached the lockout threshold."""
+
     now = time.time()
     key = (source_ip, username)
     recent = [ts for ts in failure_tracker.get(key, []) if now - ts <= LOCKOUT_WINDOW_SECONDS]
@@ -204,6 +226,8 @@ def _is_locked(
 
 
 def _source_ip() -> str:
+    """Resolve the apparent client IP from the request for local telemetry."""
+
     return request.headers.get("X-Forwarded-For", request.remote_addr or "127.0.0.1").split(",")[0].strip()
 
 
@@ -218,6 +242,8 @@ def _log_login_event(
     success: bool,
     reason: str,
 ) -> None:
+    """Write one structured login event with common request metadata."""
+
     logger.write(
         {
             "event_type": event_type,

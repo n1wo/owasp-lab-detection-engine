@@ -1,3 +1,5 @@
+"""Detection rules that evaluate local lab log events for findings."""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -35,6 +37,8 @@ def _first_threshold_window(
     username: str,
     failures: list[LogEvent],
 ) -> DetectionFinding | None:
+    """Return the first failure window that crosses the brute-force threshold."""
+
     for start_index, first_event in enumerate(failures):
         window_events = [
             event

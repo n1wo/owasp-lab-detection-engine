@@ -1,3 +1,5 @@
+# Local lab orchestration for the intentionally vulnerable Flask app.
+
 services:
   vulnerable-app:
     build:

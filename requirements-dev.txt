@@ -1,3 +1,5 @@
+# Development and test dependencies for the local OWASP lab.
+
 -r vulnerable-app/requirements.txt
 pytest==8.3.3
 

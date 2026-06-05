@@ -1,3 +1,5 @@
+"""Command-line entry point for running local lab detection rules."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,6 +12,8 @@ from .rules import detect_brute_force
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the detection CLI and print findings for a selected log file."""
+
     args = _parse_args(argv)
     result = load_jsonl(args.log_file)
     findings = detect_brute_force(result.events)
@@ -39,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    """Parse command-line options for the local detection engine."""
+
     parser = argparse.ArgumentParser(
         description="Run local lab detection rules against vulnerable-app JSONL logs."
     )
@@ -57,6 +63,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def _print_human(findings) -> None:
+    """Print detection findings in a compact human-readable format."""
+
     if not findings:
         print("No findings.")
         return

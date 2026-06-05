@@ -1,3 +1,5 @@
+"""JSONL parsing helpers for vulnerable-app security telemetry."""
+
 from __future__ import annotations
 
 import json
@@ -32,6 +34,8 @@ def load_jsonl(log_file: str | Path) -> ParseResult:
 
 
 def _normalize_record(record: dict[str, Any]) -> LogEvent:
+    """Extract the fields the rules need while preserving the full raw record."""
+
     if not isinstance(record, dict):
         raise TypeError("log line must be a JSON object")
 
@@ -49,6 +53,8 @@ def _normalize_record(record: dict[str, Any]) -> LogEvent:
 
 
 def _parse_timestamp(value: str) -> datetime:
+    """Parse ISO-8601 timestamps and normalize them to UTC datetimes."""
+
     normalized = value.replace("Z", "+00:00")
     parsed = datetime.fromisoformat(normalized)
     if parsed.tzinfo is None:

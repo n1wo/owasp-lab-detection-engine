@@ -1,3 +1,5 @@
+"""Module entry point for running the vulnerable Flask app locally."""
+
 import os
 
 from .app import create_app

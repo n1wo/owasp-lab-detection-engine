@@ -1,3 +1,5 @@
+<!-- Intro: Agent-facing rules for keeping this local security lab safe, scoped, and well tested. -->
+
 # Agent Guidance
 
 This repository contains an intentionally vulnerable educational lab. Some

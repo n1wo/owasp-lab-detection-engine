@@ -1,3 +1,5 @@
+<!-- Intro: Component map and data-flow explanation for the local lab architecture. -->
+
 # Architecture
 
 This document describes the local lab architecture. The vulnerable app has a

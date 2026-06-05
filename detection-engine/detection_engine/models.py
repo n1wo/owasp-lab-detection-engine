@@ -1,3 +1,5 @@
+"""Data models shared by the local JSONL parser and detection rules."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -47,6 +49,8 @@ class DetectionFinding:
     reason: str
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the finding into JSON-friendly primitives for CLI output."""
+
         data = asdict(self)
         data["first_seen"] = self.first_seen.isoformat().replace("+00:00", "Z")
         data["last_seen"] = self.last_seen.isoformat().replace("+00:00", "Z")

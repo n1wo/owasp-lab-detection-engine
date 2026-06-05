@@ -1,3 +1,5 @@
+# Ignore local Python, editor, OS, and lab runtime artifacts that should not be committed.
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -216,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local lab runtime logs
+logs/application.jsonl

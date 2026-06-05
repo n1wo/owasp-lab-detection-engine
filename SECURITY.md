@@ -1,3 +1,5 @@
+<!-- Intro: Responsible-use policy and safety boundaries for this intentionally vulnerable lab. -->
+
 # Security Policy
 
 ## Educational Local-Only Lab

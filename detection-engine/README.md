@@ -1,3 +1,5 @@
+<!-- Intro: Local detection-engine overview, usage notes, and rule responsibilities. -->
+
 # Detection Engine
 
 This folder contains the Python detection engine for local lab logs.

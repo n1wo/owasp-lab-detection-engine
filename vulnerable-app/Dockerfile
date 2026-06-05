@@ -1,3 +1,5 @@
+# Container image for running the vulnerable Flask app in the local lab.
+
 FROM python:3.12-slim
 
 WORKDIR /app
