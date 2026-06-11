@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0-lightgrey)
-![Pytest](https://img.shields.io/badge/tests-pytest-brightgreen)
+[![tests](https://github.com/n1wo/owasp-lab-detection-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/n1wo/owasp-lab-detection-engine/actions/workflows/tests.yml)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 ![Local Lab](https://img.shields.io/badge/scope-local--lab-orange)
 
