@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .parser import load_jsonl
-from .rules import detect_brute_force
+from .rules import detect_all
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = _parse_args(argv)
     result = load_jsonl(args.log_file)
-    findings = detect_brute_force(result.events)
+    findings = detect_all(result.events)
 
     if args.json:
         payload = {

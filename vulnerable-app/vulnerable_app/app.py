@@ -24,6 +24,8 @@ VALID_USERS = {
 ALLOWED_MODES = {"insecure", "secure"}
 LOCKOUT_FAILURE_LIMIT = 5
 LOCKOUT_WINDOW_SECONDS = 300
+SQLI_SIGNAL = "sql_injection_like_pattern"
+SQLI_MARKERS = ("' or '", '" or "', "--", "/*", "*/", " union ", " select ")
 
 
 @dataclass(frozen=True)
@@ -151,6 +153,56 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         username = request.args.get("username", "test-user")
         return render_template_string(DASHBOARD_TEMPLATE, username=username, mode=settings.mode)
 
+    @app.get("/search")
+    def search() -> Response | str:
+        """Render a local search page and log SQLi-like input when observed."""
+
+        query = request.args.get("q", "").strip()
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+        signal = _sqli_signal(query)
+        status_code = 200
+        message = None
+        results: list[str] = []
+
+        if query and signal:
+            if settings.mode == "secure":
+                status_code = 400
+                message = "Search input was rejected."
+                reason = "rejected_suspicious_input"
+            else:
+                message = "Insecure mode accepted suspicious-looking search input."
+                results = [
+                    "Local lab result: test-user profile",
+                    "Local lab result: admin profile",
+                    "Local lab result: demo account notes",
+                ]
+                reason = "accepted_suspicious_input"
+
+            _log_suspicious_input_event(
+                logger,
+                request_id=request_id,
+                source_ip=source_ip,
+                input_value=query,
+                status_code=status_code,
+                success=settings.mode == "insecure",
+                reason=reason,
+                signal=signal,
+            )
+        elif query:
+            results = [f"Local lab result for {query}"]
+
+        rendered = render_template_string(
+            SEARCH_TEMPLATE,
+            mode=settings.mode,
+            query=query,
+            message=message,
+            results=results,
+        )
+        if status_code != 200:
+            return rendered, status_code
+        return rendered
+
     @app.get("/health")
     def health() -> dict[str, str]:
         """Return a small readiness response with the configured lab mode."""
@@ -231,6 +283,28 @@ def _source_ip() -> str:
     return request.headers.get("X-Forwarded-For", request.remote_addr or "127.0.0.1").split(",")[0].strip()
 
 
+def _sqli_signal(value: str) -> str | None:
+    """Return the SQLi-like signal name when local demo input matches markers."""
+
+    normalized = f" {value.lower()} "
+    if any(marker in normalized for marker in SQLI_MARKERS):
+        return SQLI_SIGNAL
+    return None
+
+
+def _common_event_fields(status_code: int, request_id: str) -> dict[str, Any]:
+    """Build request metadata shared by all local lab telemetry events."""
+
+    return {
+        "user_agent": request.headers.get("User-Agent", ""),
+        "request_path": request.path,
+        "http_method": request.method,
+        "status_code": status_code,
+        "lab_mode": current_app.config["LAB_MODE"],
+        "request_id": request_id,
+    }
+
+
 def _log_login_event(
     logger: JsonlLogger,
     *,
@@ -249,14 +323,37 @@ def _log_login_event(
             "event_type": event_type,
             "source_ip": source_ip or "127.0.0.1",
             "username": username or "anonymous",
-            "user_agent": request.headers.get("User-Agent", ""),
-            "request_path": request.path,
-            "http_method": request.method,
-            "status_code": status_code,
-            "lab_mode": current_app.config["LAB_MODE"],
+            **_common_event_fields(status_code, request_id),
             "reason": reason,
             "session_id": None,
-            "request_id": request_id,
+            "success": success,
+        }
+    )
+
+
+def _log_suspicious_input_event(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    input_value: str,
+    status_code: int,
+    success: bool,
+    reason: str,
+    signal: str,
+) -> None:
+    """Write one structured suspicious-input event for local detection rules."""
+
+    logger.write(
+        {
+            "event_type": "suspicious_input",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": "anonymous",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "input_name": "q",
+            "input_value": input_value,
             "success": success,
         }
     )
@@ -294,6 +391,45 @@ LOGIN_TEMPLATE = """
       </label>
       <button type="submit">Sign in</button>
     </form>
+  </body>
+</html>
+"""
+
+
+SEARCH_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Local Lab Search</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 4rem auto; padding: 0 1rem; }
+      form { display: grid; gap: 0.75rem; border: 1px solid #ccc; padding: 1rem; }
+      label { display: grid; gap: 0.25rem; }
+      input, button { font: inherit; padding: 0.5rem; }
+      .warning { color: #7a2e00; }
+      .message { color: #8a0000; }
+    </style>
+  </head>
+  <body>
+    <h1>Local Lab Search</h1>
+    <p class="warning">Local educational lab only. Do not deploy publicly.</p>
+    <p>Mode: <strong>{{ mode }}</strong></p>
+    {% if message %}<p class="message">{{ message }}</p>{% endif %}
+    <form method="get" action="/search">
+      <label>
+        Search query
+        <input name="q" value="{{ query }}" autocomplete="off">
+      </label>
+      <button type="submit">Search</button>
+    </form>
+    {% if results %}
+      <h2>Results</h2>
+      <ul>
+        {% for result in results %}<li>{{ result }}</li>{% endfor %}
+      </ul>
+    {% endif %}
   </body>
 </html>
 """

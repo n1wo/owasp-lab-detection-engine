@@ -27,7 +27,7 @@ This project demonstrates:
 - secure vs insecure behavior through `LAB_MODE`
 - structured security logging from a local Flask app
 - safe JSONL parsing with recoverable parse errors
-- basic detection engineering with a documented rule
+- basic detection engineering with documented rules
 - CLI findings in human-readable and JSON formats
 - reproducible localhost-only demo activity
 - pytest coverage for app behavior, parsing, rules, and demo safety checks
@@ -36,24 +36,26 @@ This project demonstrates:
 
 - [x] Minimal Flask vulnerable app
 - [x] Login page
+- [x] Search page for SQLi-style local learning
 - [x] `LAB_MODE=insecure|secure`
 - [x] Insecure mode allows repeated login attempts
 - [x] Secure mode uses generic errors and simple lockout behavior
 - [x] JSONL telemetry written to `logs/application.jsonl`
 - [x] Python JSONL parser
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
+- [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] CLI with human-readable and JSON output
-- [x] Reproducible localhost-only demo script
+- [x] Reproducible localhost-only demo scripts
 - [x] pytest coverage
 
 ## Architecture Overview
 
 | Component | Purpose | Path |
 | --- | --- | --- |
-| Vulnerable App | Local Flask app that generates login telemetry | `vulnerable-app/` |
+| Vulnerable App | Local Flask app that generates login and search telemetry | `vulnerable-app/` |
 | Logs | JSONL security telemetry | `logs/` |
 | Detection Engine | Parses logs and produces findings | `detection-engine/` |
-| Demo Script | Generates local brute-force demo activity | `scripts/` |
+| Demo Scripts | Generate local brute-force and SQLi-like demo activity | `scripts/` |
 | Documentation | Architecture, detection rules, demo walkthrough | `docs/` |
 | Tests | App, parser, detection, and demo tests | `tests/` |
 
@@ -86,7 +88,8 @@ flowchart LR
 |   |-- README.md
 |   `-- sample-logs.jsonl
 |-- scripts/                          # Local-only demo helpers
-|   `-- generate_login_demo.py
+|   |-- generate_login_demo.py
+|   `-- generate_sqli_demo.py
 |-- tests/                            # pytest test suite
 `-- vulnerable-app/                   # Local Flask vulnerable app
     |-- Dockerfile
@@ -148,7 +151,7 @@ python -m pytest
 Current expected result:
 
 ```text
-18 passed
+30 passed
 ```
 
 On Windows/OneDrive, pytest may print cache or temp-directory warnings even
@@ -166,7 +169,7 @@ local lab flow from start to finish.
 The story is:
 
 ```text
-insecure login behavior -> structured JSONL logs -> detection rule -> finding
+insecure behavior -> structured JSONL logs -> detection rules -> findings
 ```
 
 ### 1. Start The App In Terminal 1
@@ -310,7 +313,55 @@ The output contains:
 
 An empty `parse_errors` list means the log file parsed cleanly.
 
-### 7. Optional: Clean The Generated Log
+### 7. Run The SQLi-Style Search Demo
+
+Go back to the repository root in Terminal 2:
+
+```powershell
+cd ..
+```
+
+Generate one local SQLi-like search request:
+
+```powershell
+python scripts\generate_sqli_demo.py
+```
+
+Expected output in insecure mode:
+
+```text
+Generated local SQLi-like search demo activity.
+Target: http://127.0.0.1:8080
+Search path: /search
+HTTP status observed: 200
+```
+
+The app writes a `suspicious_input` event with:
+
+```text
+signal = sql_injection_like_pattern
+```
+
+Run the detection engine again:
+
+```powershell
+cd detection-engine
+python -m detection_engine --log-file ..\logs\application.jsonl
+```
+
+Expected additional finding:
+
+```text
+WEB-SQLI-PATTERN-001 [Medium]
+```
+
+In secure mode, the same search demo should return HTTP `400`, but it still
+logs the suspicious input attempt for detection.
+
+If the SQLi demo reports HTTP `404`, the running Docker container is stale.
+Stop it and restart with `docker compose up --build`.
+
+### 8. Optional: Clean The Generated Log
 
 If you want a fresh demo run, stop the app if needed and remove the generated
 runtime log:
@@ -358,6 +409,19 @@ The demo script:
 - writes JSONL login telemetry to `logs/application.jsonl`
 - is designed to trigger `AUTH-BRUTE-FORCE-001`
 
+Generate SQLi-like local search activity:
+
+```bash
+python scripts/generate_sqli_demo.py
+```
+
+The SQLi demo script:
+
+- only targets `localhost` / `127.0.0.1`
+- sends one SQLi-like search request to `/search`
+- writes `suspicious_input` telemetry to `logs/application.jsonl`
+- is designed to trigger `WEB-SQLI-PATTERN-001`
+
 ## Inspect Generated Logs
 
 macOS/Linux:
@@ -372,9 +436,12 @@ Windows PowerShell:
 Get-Content logs/application.jsonl -Tail 10
 ```
 
-Each login event includes fields such as `timestamp`, `event_type`,
+Each event includes fields such as `timestamp`, `event_type`,
 `source_ip`, `username`, `user_agent`, `request_path`, `http_method`,
 `status_code`, `lab_mode`, `reason`, and `session_id`.
+
+SQLi-like search telemetry also includes `signal`, `input_name`, and
+`input_value`.
 
 ## Run The Detection Engine
 
@@ -393,9 +460,11 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 
 Expected finding:
 
-- Rule: `AUTH-BRUTE-FORCE-001`
-- Trigger: 5 or more `login_failure` events for the same `source_ip` and
-  `username` within 5 minutes
+- Rule: `AUTH-BRUTE-FORCE-001` when the log contains 5 or more
+  `login_failure` events for the same `source_ip` and `username` within
+  5 minutes
+- Rule: `WEB-SQLI-PATTERN-001` when the log contains a `suspicious_input`
+  event with `signal` set to `sql_injection_like_pattern`
 
 ## Full Demo Flow
 
@@ -416,6 +485,7 @@ In a second terminal, from the repository root:
 ```bash
 source .venv/bin/activate
 python scripts/generate_login_demo.py
+python scripts/generate_sqli_demo.py
 cd detection-engine
 python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
@@ -438,6 +508,7 @@ In a second PowerShell terminal, from the repository root:
 ```powershell
 .venv\Scripts\activate
 python scripts/generate_login_demo.py
+python scripts/generate_sqli_demo.py
 cd detection-engine
 python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
@@ -448,7 +519,7 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | Rule ID | Goal | Signal | Severity | Status |
 | --- | --- | --- | --- | --- |
 | `AUTH-BRUTE-FORCE-001` | Detect repeated login failures | 5 `login_failure` events for same `source_ip` + `username` within 5 minutes | Medium | Implemented |
-| `WEB-SQLI-PATTERN-001` | Detect SQL injection-like local lab input | Future `suspicious_input` telemetry | Medium | Planned |
+| `WEB-SQLI-PATTERN-001` | Detect SQL injection-like local lab input | `suspicious_input` event with `signal=sql_injection_like_pattern` | Medium | Implemented |
 | `WEB-XSS-PATTERN-001` | Detect XSS-like local lab input | Future `suspicious_input` telemetry | Medium | Planned |
 | `WEB-BROKEN-ACCESS-001` | Detect broken access control behavior | Future local access-control telemetry | High | Planned |
 
@@ -459,7 +530,7 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `timestamp` | UTC ISO-8601 event timestamp | `2026-06-02T09:00:00Z` |
 | `app` | Application name | `vulnerable-app` |
 | `environment` | Lab environment label | `local-lab` |
-| `event_type` | Login event type | `login_failure` |
+| `event_type` | Event type | `login_failure` |
 | `source_ip` | Local/private client address | `127.0.0.1` |
 | `username` | Fictional lab username | `test-user` |
 | `user_agent` | Client user-agent string | `owasp-lab-demo/1.0` |
@@ -471,12 +542,16 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `session_id` | Fake/local session ID or null | `null` |
 | `request_id` | Per-request identifier | `fake-request-001` |
 | `success` | Whether login succeeded | `false` |
+| `signal` | Suspicious-input signal, when present | `sql_injection_like_pattern` |
+| `input_name` | Input field name, when present | `q` |
+| `input_value` | Local lab input value, when present | `test-user' OR '1'='1` |
 
 Supported current `event_type` values:
 
 - `login_success`
 - `login_failure`
 - `account_lockout`
+- `suspicious_input`
 - `access_denied`
 
 ## Running Tests
@@ -493,6 +568,7 @@ Current test coverage includes:
 - JSONL parser
 - invalid JSONL handling
 - brute-force detection rule
+- SQLi-like pattern detection rule
 - demo script safety checks
 - localhost-only validation
 
@@ -514,11 +590,13 @@ Completed:
 - [x] structured login telemetry
 - [x] Python JSONL parser
 - [x] `AUTH-BRUTE-FORCE-001`
+- [x] SQL injection-style local learning scenario
+- [x] `WEB-SQLI-PATTERN-001`
 - [x] reproducible brute-force demo workflow
+- [x] reproducible SQLi-like search demo workflow
 
 Planned:
 
-- [ ] SQL injection-style local learning scenario
 - [ ] XSS-style local learning scenario
 - [ ] broken access control scenario
 - [ ] optional SIEM/Wazuh export format

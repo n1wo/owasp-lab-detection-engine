@@ -4,7 +4,7 @@
 
 This folder contains the local-only vulnerable web application.
 
-The app currently implements milestone 2: a minimal login page with
+The app currently implements a minimal login page and a local search page with
 configuration-controlled insecure and secure modes plus structured JSONL
 logging.
 
@@ -14,9 +14,10 @@ publicly.
 ## Current Features
 
 - Flask-based login page
+- Flask-based search page
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
-- consistent JSONL login telemetry written to `logs/application.jsonl`
+- consistent JSONL telemetry written to `logs/application.jsonl`
 - localhost-only Docker Compose port binding
 
 ## Login Telemetry Schema
@@ -36,6 +37,17 @@ Each login-related JSONL event includes:
 | `lab_mode` | `insecure` or `secure` |
 | `reason` | Short machine-readable reason |
 | `session_id` | Fake/local session identifier when available, otherwise `null` |
+
+## Search Telemetry Schema
+
+SQLi-like search events use `event_type=suspicious_input` and include:
+
+| Field | Description |
+| --- | --- |
+| `signal` | `sql_injection_like_pattern` for the current SQLi-style lab |
+| `input_name` | Submitted input field, currently `q` |
+| `input_value` | Fictional local lab input value |
+| `reason` | `accepted_suspicious_input` or `rejected_suspicious_input` |
 
 ## Local Commands
 
@@ -69,6 +81,6 @@ admin / admin-password
 
 ## Boundary
 
-The current vulnerable scenario is a brute-forceable login flow in insecure
-mode. Future scenarios should keep vulnerable and secure behavior clearly
-separated.
+The current vulnerable scenarios are a brute-forceable login flow and a
+SQLi-style suspicious search input flow in insecure mode. Future scenarios
+should keep vulnerable and secure behavior clearly separated.

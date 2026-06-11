@@ -8,10 +8,22 @@ from datetime import timedelta
 from .models import DetectionFinding, LogEvent
 
 
-RULE_ID = "AUTH-BRUTE-FORCE-001"
+BRUTE_FORCE_RULE_ID = "AUTH-BRUTE-FORCE-001"
+SQLI_RULE_ID = "WEB-SQLI-PATTERN-001"
 SEVERITY = "Medium"
 FAILURE_THRESHOLD = 5
 WINDOW = timedelta(minutes=5)
+SQLI_SIGNAL = "sql_injection_like_pattern"
+
+
+def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Run every implemented local lab detection rule."""
+
+    findings = [
+        *detect_brute_force(events),
+        *detect_sqli_patterns(events),
+    ]
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
 
 def detect_brute_force(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -48,7 +60,7 @@ def _first_threshold_window(
         if len(window_events) >= FAILURE_THRESHOLD:
             last_event = window_events[FAILURE_THRESHOLD - 1]
             return DetectionFinding(
-                rule_id=RULE_ID,
+                rule_id=BRUTE_FORCE_RULE_ID,
                 severity=SEVERITY,
                 source_ip=source_ip,
                 username=username,
@@ -61,4 +73,35 @@ def _first_threshold_window(
                 ),
             )
     return None
+
+
+def detect_sqli_patterns(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect SQLi-like suspicious input events from local lab telemetry."""
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "suspicious_input":
+            continue
+        if event.raw.get("signal") != SQLI_SIGNAL:
+            continue
+
+        input_name = str(event.raw.get("input_name") or "unknown")
+        request_path = str(event.raw.get("request_path") or "unknown")
+        findings.append(
+            DetectionFinding(
+                rule_id=SQLI_RULE_ID,
+                severity=SEVERITY,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"SQL injection-like input signal {SQLI_SIGNAL!r} observed "
+                    f"for field {input_name!r} on {request_path}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
 

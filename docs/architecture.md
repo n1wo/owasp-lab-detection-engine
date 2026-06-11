@@ -3,16 +3,16 @@
 # Architecture
 
 This document describes the local lab architecture. The vulnerable app has a
-minimal login implementation, and the detection engine currently parses JSONL
-logs for brute-force login detection.
+minimal login implementation, a local search scenario, and a detection engine
+that parses JSONL logs for brute-force and SQLi-like pattern detection.
 
 ## Components
 
 ### Vulnerable App
 
 The vulnerable app is a local Flask web application with configurable
-vulnerable and secure modes. The current implementation includes a login page
-and emits structured logs for login outcomes.
+vulnerable and secure modes. The current implementation includes a login page,
+a search page, and structured logs for login outcomes and suspicious input.
 
 ### Structured Logs
 
@@ -21,12 +21,12 @@ event type, source IP, username, user agent, request path, HTTP method, status
 code, lab mode, reason, and session ID. Logs should use local/private example
 values only.
 
-Current login telemetry schema:
+Current telemetry schema:
 
 | Field | Description |
 | --- | --- |
 | `timestamp` | UTC ISO-8601 event timestamp |
-| `event_type` | `login_success`, `login_failure`, `account_lockout`, or `access_denied` |
+| `event_type` | `login_success`, `login_failure`, `account_lockout`, `suspicious_input`, or `access_denied` |
 | `source_ip` | Local/private client address |
 | `username` | Fictional local lab username |
 | `user_agent` | Client user-agent string, when provided |
@@ -36,12 +36,16 @@ Current login telemetry schema:
 | `lab_mode` | `insecure` or `secure` |
 | `reason` | Short machine-readable reason |
 | `session_id` | Fake/local session identifier when available, otherwise `null` |
+| `signal` | Suspicious-input signal such as `sql_injection_like_pattern`, when present |
+| `input_name` | Submitted field name for suspicious input, when present |
+| `input_value` | Local lab input value for suspicious input, when present |
 
 ### Detection Engine
 
 The Python detection engine reads local JSONL logs, normalizes events, applies
-the `AUTH-BRUTE-FORCE-001` detection rule, and emits local findings. It should
-focus on defensive detection behavior rather than offensive instructions.
+implemented detection rules, and emits local findings. Current rules are
+`AUTH-BRUTE-FORCE-001` and `WEB-SQLI-PATTERN-001`. The engine should focus on
+defensive detection behavior rather than offensive instructions.
 
 ### Optional SIEM/Wazuh Export
 

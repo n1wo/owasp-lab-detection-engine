@@ -12,7 +12,7 @@ sys.path.insert(0, str(DETECTION_ENGINE_ROOT))
 
 from detection_engine.models import LogEvent  # noqa: E402
 from detection_engine.parser import load_jsonl  # noqa: E402
-from detection_engine.rules import detect_brute_force  # noqa: E402
+from detection_engine.rules import detect_all, detect_brute_force, detect_sqli_patterns  # noqa: E402
 
 
 def write_jsonl(path, records):
@@ -53,6 +53,23 @@ def event(event_type, source_ip="127.0.0.1", username="test-user", minute=0):
         source_ip=source_ip,
         username=username,
         raw={},
+    )
+
+
+def suspicious_input_event(source_ip="127.0.0.1", minute=0):
+    """Build a suspicious_input LogEvent for SQLi detection tests."""
+
+    timestamp = datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+    return LogEvent(
+        timestamp=timestamp,
+        event_type="suspicious_input",
+        source_ip=source_ip,
+        username="anonymous",
+        raw={
+            "signal": "sql_injection_like_pattern",
+            "input_name": "q",
+            "request_path": "/search",
+        },
     )
 
 
@@ -185,3 +202,52 @@ def test_brute_force_grouping_triggers_for_matching_group_only():
     assert len(findings) == 1
     assert findings[0].source_ip == "127.0.0.1"
     assert findings[0].username == "test-user"
+
+
+def test_sqli_rule_triggers_on_matching_suspicious_input_signal():
+    """Verify SQLi-like suspicious-input telemetry creates a finding."""
+
+    events = [suspicious_input_event()]
+
+    findings = detect_sqli_patterns(events)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.rule_id == "WEB-SQLI-PATTERN-001"
+    assert finding.severity == "Medium"
+    assert finding.source_ip == "127.0.0.1"
+    assert finding.username == "anonymous"
+    assert finding.event_count == 1
+    assert finding.first_seen == events[0].timestamp
+    assert finding.last_seen == events[0].timestamp
+    assert "sql_injection_like_pattern" in finding.reason
+    assert "/search" in finding.reason
+
+
+def test_sqli_rule_ignores_non_matching_suspicious_input_signal():
+    """Verify unrelated suspicious-input signals do not trigger SQLi findings."""
+
+    event = suspicious_input_event()
+    event = LogEvent(
+        timestamp=event.timestamp,
+        event_type=event.event_type,
+        source_ip=event.source_ip,
+        username=event.username,
+        raw={"signal": "xss_like_pattern", "input_name": "q", "request_path": "/search"},
+    )
+
+    assert detect_sqli_patterns([event]) == []
+
+
+def test_detect_all_returns_brute_force_and_sqli_findings():
+    """Verify the combined rule runner emits all implemented rule types."""
+
+    events = [event("login_failure", minute=minute) for minute in range(5)]
+    events.append(suspicious_input_event(minute=6))
+
+    findings = detect_all(events)
+
+    assert [finding.rule_id for finding in findings] == [
+        "AUTH-BRUTE-FORCE-001",
+        "WEB-SQLI-PATTERN-001",
+    ]

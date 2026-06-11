@@ -1,4 +1,4 @@
-"""Tests for vulnerable-app login modes and structured telemetry."""
+"""Tests for vulnerable-app lab modes and structured telemetry."""
 
 import json
 import sys
@@ -121,3 +121,72 @@ def test_secure_mode_blocks_after_repeated_failures(tmp_path):
     events = read_jsonl(log_file)
     assert [event["event_type"] for event in events][-1] == "account_lockout"
     assert events[-1]["reason"] == "too_many_failures"
+
+
+def test_insecure_search_accepts_sqli_like_input_and_logs_signal(tmp_path):
+    """Verify insecure search accepts SQLi-like input and logs a signal."""
+
+    log_file = tmp_path / "app.jsonl"
+    app = create_app({"LAB_MODE": "insecure", "LAB_LOG_FILE": log_file})
+
+    response = app.test_client().get(
+        "/search",
+        query_string={"q": "test-user' OR '1'='1"},
+        headers={"User-Agent": "pytest-local"},
+    )
+
+    assert response.status_code == 200
+    assert b"Insecure mode accepted suspicious-looking search input." in response.data
+    assert b"Local lab result: admin profile" in response.data
+
+    events = read_jsonl(log_file)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "suspicious_input"
+    assert events[0]["signal"] == "sql_injection_like_pattern"
+    assert events[0]["lab_mode"] == "insecure"
+    assert events[0]["reason"] == "accepted_suspicious_input"
+    assert events[0]["source_ip"] == "127.0.0.1"
+    assert events[0]["username"] == "anonymous"
+    assert events[0]["request_path"] == "/search"
+    assert events[0]["http_method"] == "GET"
+    assert events[0]["status_code"] == 200
+    assert events[0]["success"] is True
+    assert events[0]["input_name"] == "q"
+
+
+def test_secure_search_rejects_sqli_like_input_and_logs_signal(tmp_path):
+    """Verify secure search rejects SQLi-like input and logs the attempt."""
+
+    log_file = tmp_path / "app.jsonl"
+    app = create_app({"LAB_MODE": "secure", "LAB_LOG_FILE": log_file})
+
+    response = app.test_client().get(
+        "/search",
+        query_string={"q": "test-user' OR '1'='1"},
+    )
+
+    assert response.status_code == 400
+    assert b"Search input was rejected." in response.data
+    assert b"Local lab result: admin profile" not in response.data
+
+    events = read_jsonl(log_file)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "suspicious_input"
+    assert events[0]["signal"] == "sql_injection_like_pattern"
+    assert events[0]["lab_mode"] == "secure"
+    assert events[0]["reason"] == "rejected_suspicious_input"
+    assert events[0]["status_code"] == 400
+    assert events[0]["success"] is False
+
+
+def test_search_normal_query_does_not_emit_suspicious_input_log(tmp_path):
+    """Verify ordinary search input renders without suspicious-input telemetry."""
+
+    log_file = tmp_path / "app.jsonl"
+    app = create_app({"LAB_MODE": "insecure", "LAB_LOG_FILE": log_file})
+
+    response = app.test_client().get("/search", query_string={"q": "test-user"})
+
+    assert response.status_code == 200
+    assert b"Local lab result for test-user" in response.data
+    assert not log_file.exists()

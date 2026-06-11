@@ -23,15 +23,15 @@ Out of scope:
 - real credentials, real user data, or production logs
 - instructions for unauthorized exploitation
 
-## Planned Vulnerable Scenarios
+## Implemented Vulnerable Scenarios
 
-The current implemented scenario is:
+The current implemented scenarios are:
 
 - brute-forceable login in insecure mode
+- SQL injection-style suspicious search input in insecure mode
 
 The lab is planned to add these controlled scenarios later:
 
-- SQL injection-style unsafe input handling
 - reflected or stored XSS-style unsafe rendering
 - broken access control
 
@@ -57,6 +57,26 @@ In `LAB_MODE=secure`, the local login flow has basic safer behavior:
 - simple in-memory lockout after repeated failures
 
 Both modes emit JSONL login events for local detection development.
+
+## Current SQLi-Style Search Scenario
+
+In `LAB_MODE=insecure`, the local `/search` route intentionally accepts
+SQLi-like input patterns for learning purposes:
+
+- suspicious-looking search input is accepted
+- local demo results are returned
+- a `suspicious_input` event is logged with
+  `signal=sql_injection_like_pattern`
+
+In `LAB_MODE=secure`, the same route has basic safer behavior:
+
+- suspicious-looking search input is rejected with HTTP `400`
+- the response is generic
+- a `suspicious_input` event is still logged so the detection engine can alert
+  on the attempted input
+
+This scenario does not connect to a real database. It models the telemetry and
+detection workflow without creating a public or production attack surface.
 
 ## Assumptions
 

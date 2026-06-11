@@ -13,14 +13,14 @@ Current responsibilities:
 - load JSONL application logs
 - normalize log events
 - evaluate brute-force login detection logic for local lab scenarios
+- evaluate SQLi-like suspicious-input detection logic for local lab scenarios
 - report findings in a clear local output format
 - report malformed JSONL lines safely without stopping valid parsing
 - ignore unknown additional log fields safely while preserving the raw event
 
 Future responsibilities:
 
-- add rules for SQL injection-like, XSS-like, and broken-access-control lab
-  scenarios
+- add rules for XSS-like and broken-access-control lab scenarios
 - optionally export a Wazuh/SIEM-friendly format later
 
 ## Usage
@@ -37,12 +37,17 @@ JSON output:
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
-## Current Rule
+## Current Rules
 
 `AUTH-BRUTE-FORCE-001` detects repeated `login_failure` events grouped by
 `source_ip` and `username`.
 
-It alerts when there are 5 or more failures within 5 minutes and emits:
+It alerts when there are 5 or more failures within 5 minutes.
+
+`WEB-SQLI-PATTERN-001` detects `suspicious_input` events where `signal` is
+`sql_injection_like_pattern`.
+
+Both rules emit:
 
 - `rule_id`
 - `severity`
