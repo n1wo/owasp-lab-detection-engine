@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .parser import load_jsonl
+from .report import render_html_report
 from .rules import detect_all
 
 
@@ -17,6 +18,17 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     result = load_jsonl(args.log_file)
     findings = detect_all(result.events)
+
+    if args.html is not None:
+        html = render_html_report(
+            findings,
+            result.errors,
+            log_file=str(args.log_file),
+            event_count=len(result.events),
+        )
+        args.html.parent.mkdir(parents=True, exist_ok=True)
+        args.html.write_text(html, encoding="utf-8")
+        print(f"Wrote HTML report: {args.html}", file=sys.stderr)
 
     if args.json:
         payload = {
@@ -58,6 +70,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--json",
         action="store_true",
         help="Emit findings and parse errors as JSON.",
+    )
+    parser.add_argument(
+        "--html",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Also write a self-contained HTML dashboard report to PATH.",
     )
     return parser.parse_args(argv)
 

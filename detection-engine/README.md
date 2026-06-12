@@ -37,6 +37,12 @@ JSON output:
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
+HTML dashboard report (self-contained, opens offline in any browser):
+
+```bash
+python -m detection_engine --log-file ../logs/application.jsonl --html ../logs/findings.html
+```
+
 ## Current Rules
 
 `AUTH-BRUTE-FORCE-001` detects repeated `login_failure` events grouped by

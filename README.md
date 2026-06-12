@@ -28,7 +28,7 @@ This project demonstrates:
 - structured security logging from a local Flask app
 - safe JSONL parsing with recoverable parse errors
 - basic detection engineering with documented rules
-- CLI findings in human-readable and JSON formats
+- CLI findings in human-readable, JSON, and HTML dashboard formats
 - reproducible localhost-only demo activity
 - pytest coverage for app behavior, parsing, rules, and demo safety checks
 
@@ -45,6 +45,7 @@ This project demonstrates:
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] CLI with human-readable and JSON output
+- [x] Self-contained HTML findings dashboard via `--html`
 - [x] Reproducible localhost-only demo scripts
 - [x] pytest coverage
 
@@ -600,7 +601,8 @@ Planned:
 - [ ] XSS-style local learning scenario
 - [ ] broken access control scenario
 - [ ] optional SIEM/Wazuh export format
-- [ ] richer reporting
+- [x] HTML findings dashboard report (`--html`)
+- [ ] richer reporting, e.g. trends over time
 
 ## Portfolio Relevance
 
