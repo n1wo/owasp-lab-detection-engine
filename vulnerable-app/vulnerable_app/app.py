@@ -698,7 +698,9 @@ BASE_STYLES = """
         letter-spacing: 0.08em;
         color: var(--text-muted);
         text-transform: uppercase;
+        text-decoration: none;
       }
+      .brand:hover { color: var(--text); }
       .brand .dot {
         width: 0.55rem;
         height: 0.55rem;
@@ -933,7 +935,7 @@ HOME_TEMPLATE = """
   </head>
   <body>
     <div class="home">
-      <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+      <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
       <div class="hero">
         <h1>A hands-on detection engineering lab</h1>
         <p>Attack a deliberately vulnerable app in your browser, watch each action become structured
@@ -1011,7 +1013,7 @@ LOGIN_TEMPLATE = """
     <style>{styles}</style>
   </head>
   <body>
-    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
       <h1>Sign in</h1>
       <p class="subtitle">Authentication telemetry lab &mdash; login events are logged as JSONL.</p>
@@ -1064,7 +1066,7 @@ SEARCH_TEMPLATE = """
     </style>
   </head>
   <body>
-    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
       <h1>Search</h1>
       <p class="subtitle">SQLi telemetry lab &mdash; suspicious input is logged as JSONL.</p>
@@ -1129,7 +1131,7 @@ COMMENT_TEMPLATE = """
     </style>
   </head>
   <body>
-    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
       <h1>Comment</h1>
       <p class="subtitle">XSS telemetry lab &mdash; suspicious comment input is logged as JSONL.</p>
@@ -1170,7 +1172,7 @@ ADMIN_TEMPLATE = """
     <style>{styles}</style>
   </head>
   <body>
-    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
       <h1>Admin panel</h1>
       <p class="subtitle">Restricted area &mdash; administrators only.</p>
@@ -1206,7 +1208,7 @@ ACCESS_DENIED_TEMPLATE = """
     <style>{styles}</style>
   </head>
   <body>
-    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
       <h1>403 &middot; Access denied</h1>
       <p class="subtitle">The admin panel requires administrator privileges.</p>
@@ -1285,7 +1287,7 @@ SOC_LIVE_TEMPLATE = """
     </style>
   </head>
   <body>
-    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card soc-card">
       <h1>Live SOC Alerts</h1>
       <p class="subtitle">Alerts are generated directly from local JSONL telemetry.</p>

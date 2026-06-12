@@ -33,6 +33,15 @@ def test_nav_console_present_on_all_pages(tmp_path):
         assert b'href="/soc"' in response.data
 
 
+def test_brand_links_back_to_home_on_lab_pages(tmp_path):
+    client = make_app(tmp_path).test_client()
+
+    for path in ("/", "/login", "/search", "/comment", "/dashboard", "/soc"):
+        response = client.get(path)
+        assert response.status_code in (200, 403)
+        assert b'<a class="brand" href="/">' in response.data
+
+
 def _nav_block(html):
     """Return just the lab console <nav> markup from a page."""
 
