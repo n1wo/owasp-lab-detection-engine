@@ -25,7 +25,7 @@ def read_jsonl(path):
 def test_nav_console_present_on_all_pages(tmp_path):
     client = make_app(tmp_path).test_client()
 
-    for path in ("/", "/search", "/dashboard"):
+    for path in ("/", "/search", "/comment", "/dashboard"):
         response = client.get(path)
         assert response.status_code == 200
         assert b'id="labnav"' in response.data
@@ -64,6 +64,22 @@ def test_mode_toggle_changes_login_behavior_at_runtime(tmp_path):
     secure = client.post("/login", data={"username": "ghost", "password": "x"})
     assert b"Invalid username or password." in secure.data
     assert b"Unknown user." not in secure.data
+
+
+def test_mode_toggle_changes_xss_comment_behavior_at_runtime(tmp_path):
+    client = make_app(tmp_path, mode="insecure").test_client()
+    payload = {"comment": "<script>alert(1)</script>"}
+
+    insecure = client.post("/comment", data=payload)
+    assert insecure.status_code == 200
+    assert b"<script>alert(1)</script>" in insecure.data
+
+    client.post("/lab/mode")
+
+    secure = client.post("/comment", data=payload)
+    assert secure.status_code == 400
+    assert b"Comment input was rejected." in secure.data
+    assert b"<script>alert(1)</script>" not in secure.data
 
 
 def test_mode_toggle_rejects_unsafe_redirect_targets(tmp_path):

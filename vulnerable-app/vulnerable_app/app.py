@@ -260,7 +260,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         rendered_comment = ""
 
         if comment_text and signal:
-            if settings.mode == "secure":
+            if _mode() == "secure":
                 status_code = 400
                 message = "Comment input was rejected."
                 reason = "rejected_suspicious_input"
@@ -276,7 +276,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 input_name="comment",
                 input_value=comment_text,
                 status_code=status_code,
-                success=settings.mode == "insecure",
+                success=_mode() == "insecure",
                 reason=reason,
                 signal=signal,
             )
@@ -285,10 +285,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
         rendered = render_template_string(
             COMMENT_TEMPLATE,
-            mode=settings.mode,
+            mode=_mode(),
             comment=comment_text,
             rendered_comment=rendered_comment,
-            render_comment_as_html=settings.mode == "insecure" and bool(signal),
+            render_comment_as_html=_mode() == "insecure" and bool(signal),
             message=message,
         )
         if status_code != 200:
@@ -602,6 +602,7 @@ NAV_SNIPPET = """
     <div class="labnav-group">Scenarios</div>
     <a href="/">Brute force &middot; Login</a>
     <a href="/search">SQL injection &middot; Search</a>
+    <a href="/comment">XSS &middot; Comment</a>
     <a href="/dashboard">Dashboard</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
@@ -860,9 +861,10 @@ COMMENT_TEMPLATE = """
       {% endif %}
     </div>
     <div class="footer">WEB-XSS-PATTERN-001 &middot; logs/application.jsonl</div>
+    {nav}
   </body>
 </html>
-""".replace("{styles}", BASE_STYLES)
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
 
 
 DASHBOARD_TEMPLATE = """
