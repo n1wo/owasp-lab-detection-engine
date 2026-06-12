@@ -88,6 +88,12 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.get("/")
     def index() -> Response | str:
+        """Render the lab overview / landing page."""
+
+        return render_template_string(HOME_TEMPLATE, mode=_mode())
+
+    @app.get("/login")
+    def login_form() -> Response | str:
         """Render the login form for the current lab mode."""
 
         return render_template_string(LOGIN_TEMPLATE, mode=_mode(), message=None)
@@ -211,7 +217,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         """Clear the lab session and return to the login page."""
 
         session.clear()
-        return redirect(url_for("index"))
+        return redirect(url_for("login_form"))
 
     @app.post("/lab/mode")
     def toggle_mode() -> Response:
@@ -769,8 +775,9 @@ NAV_SNIPPET = """
 <nav class="labnav" id="labnav" aria-label="Lab console">
   <div class="labnav-panel">
     <div class="labnav-title">Lab Console</div>
+    <a href="/">Lab overview</a>
     <div class="labnav-group">Scenarios</div>
-    <a href="/">Brute force &middot; Login</a>
+    <a href="/login">Brute force &middot; Login</a>
     <a href="/search">SQL injection &middot; Search</a>
     <a href="/comment">XSS &middot; Comment</a>
     <div class="labnav-group">Detection</div>
@@ -878,6 +885,111 @@ NAV_SNIPPET = """
 """
 
 
+HOME_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab Detection Engine</title>
+    <style>{styles}
+      body { justify-content: flex-start; }
+      .home { width: 100%; max-width: 54rem; }
+      .hero { margin-bottom: 1.6rem; }
+      .hero h1 { font-size: 1.7rem; margin-bottom: 0.5rem; }
+      .hero p { color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; margin: 0; max-width: 42rem; }
+      .home .card { max-width: none; margin-bottom: 1.2rem; }
+      .section-title { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 1rem; }
+      .loop { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.7rem; }
+      .loop-step { border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem 0.95rem; background: rgba(255,255,255,0.02); }
+      .loop-step .n { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); }
+      .loop-step .t { font-weight: 600; font-size: 0.9rem; margin: 0.25rem 0; }
+      .loop-step .d { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+      .scenario-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.9rem; }
+      .scenario { display: block; text-decoration: none; border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.2rem; background: rgba(255,255,255,0.02); transition: border-color 0.15s, transform 0.05s; }
+      .scenario:hover { border-color: var(--accent-strong); transform: translateY(-1px); }
+      .scenario .rule { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.04em; color: var(--text-faint); }
+      .scenario .name { font-size: 1.02rem; font-weight: 600; color: var(--text); margin: 0.3rem 0; }
+      .scenario .desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.45; margin: 0; }
+      .creds { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.7rem; }
+      .cred { font-family: var(--mono); font-size: 0.82rem; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: var(--bg); }
+      .cred .role { color: var(--text-faint); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }
+      .cred .val { color: var(--accent); }
+      .toggle-note { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin: 0; }
+      .toggle-note strong.on { color: var(--warn-text); }
+      .toggle-note strong.off { color: var(--ok); }
+    </style>
+  </head>
+  <body>
+    <div class="home">
+      <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+      <div class="hero">
+        <h1>A hands-on detection engineering lab</h1>
+        <p>Attack a deliberately vulnerable app in your browser, watch each action become structured
+           JSONL telemetry, then run the detection engine to see the attacks surface in a SOC-style
+           findings report. Everything runs locally for learning only.</p>
+      </div>
+
+      <div class="card">
+        <p class="section-title">How it works</p>
+        <div class="loop">
+          <div class="loop-step"><div class="n">01</div><div class="t">Attack</div><div class="d">Run a scenario below in insecure mode.</div></div>
+          <div class="loop-step"><div class="n">02</div><div class="t">Telemetry</div><div class="d">The app logs each event to logs/application.jsonl.</div></div>
+          <div class="loop-step"><div class="n">03</div><div class="t">Detect</div><div class="d">The Python engine evaluates the logs against rules.</div></div>
+          <div class="loop-step"><div class="n">04</div><div class="t">Report</div><div class="d">Findings render in the SOC dashboard.</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="section-title">Scenarios</p>
+        <div class="scenario-grid">
+          <a class="scenario" href="/login">
+            <div class="rule">AUTH-BRUTE-FORCE-001</div>
+            <div class="name">Login brute force</div>
+            <p class="desc">Repeated failed logins. Insecure mode leaks whether a user exists; secure mode locks out.</p>
+          </a>
+          <a class="scenario" href="/search">
+            <div class="rule">WEB-SQLI-PATTERN-001</div>
+            <div class="name">SQL injection</div>
+            <p class="desc">Inject SQL-like input into search. Insecure mode accepts it; secure mode rejects it.</p>
+          </a>
+          <a class="scenario" href="/comment">
+            <div class="rule">WEB-XSS-PATTERN-001</div>
+            <div class="name">Cross-site scripting</div>
+            <p class="desc">Post a script payload as a comment. Insecure mode renders it; secure mode escapes it.</p>
+          </a>
+          <a class="scenario" href="/dashboard">
+            <div class="rule">BAC-PRIV-ESC-001</div>
+            <div class="name">Broken access control</div>
+            <p class="desc">The admin panel returns 403. Escalate with a client-supplied role to reach it &mdash; insecure mode only.</p>
+          </a>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="section-title">Secure vs insecure</p>
+        <p class="toggle-note">The lab runs in <strong class="on">insecure</strong> mode (vulnerabilities on) or
+           <strong class="off">secure</strong> mode (mitigations on). Flip it any time from the
+           <strong>lab console</strong> on the right edge to compare how each scenario behaves and how the
+           telemetry changes. Currently: <span class="badge mode-{{ mode }}">mode: {{ mode }}</span></p>
+      </div>
+
+      <div class="card">
+        <p class="section-title">Demo credentials</p>
+        <div class="creds">
+          <div class="cred"><div class="role">regular user</div><div class="val">test-user / lab-password</div></div>
+          <div class="cred"><div class="role">administrator</div><div class="val">admin / admin-password</div></div>
+        </div>
+      </div>
+
+      <div class="footer">local educational lab &middot; do not deploy publicly</div>
+    </div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
 LOGIN_TEMPLATE = """
 <!doctype html>
 <html lang="en">
@@ -909,6 +1021,7 @@ LOGIN_TEMPLATE = """
         </label>
         <button type="submit">Sign in</button>
       </form>
+      <p class="meta" style="margin-top:1rem;">try: <strong>test-user / lab-password</strong> &middot; <strong>admin / admin-password</strong></p>
     </div>
     <div class="footer">AUTH-BRUTE-FORCE-001 &middot; logs/application.jsonl</div>
     {nav}
@@ -1092,7 +1205,7 @@ ACCESS_DENIED_TEMPLATE = """
         <span class="badge">role: {{ role }}</span>
       </div>
       <div class="notice warning">&#9888;&#65039;&nbsp; Sign in as an administrator to continue. There is no link to this page by design &mdash; reaching it otherwise is the scenario's objective.</div>
-      <form method="get" action="/">
+      <form method="get" action="/login">
         <button type="submit">Back to login</button>
       </form>
     </div>
@@ -1192,9 +1305,15 @@ SOC_LIVE_TEMPLATE = """
           {% endfor %}
         </div>
       {% else %}
-        <div class="empty">No live alerts yet. Try a failed login, suspicious search, or XSS-style comment in the local lab.</div>
+        <div class="empty">No live alerts yet. Run an attack scenario in insecure mode:
+          <a href="/login">login</a> &middot; <a href="/search">search</a> &middot;
+          <a href="/comment">comment</a> &middot; <a href="/dashboard">admin</a>.</div>
       {% endif %}
-      <p class="footer">Generated HTML report path: {{ report_file }}</p>
+      <p class="footer">For the full findings dashboard, generate the HTML report at {{ report_file }} with
+        <code>python -m detection_engine --html</code>.</p>
+      <form method="get" action="/">
+        <button type="submit">Back to lab overview</button>
+      </form>
     </div>
     {nav}
   </body>

@@ -25,7 +25,7 @@ def read_jsonl(path):
 def test_nav_console_present_on_all_pages(tmp_path):
     client = make_app(tmp_path).test_client()
 
-    for path in ("/", "/search", "/comment"):
+    for path in ("/", "/login", "/search", "/comment"):
         response = client.get(path)
         assert response.status_code == 200
         assert b'id="labnav"' in response.data
@@ -33,11 +33,18 @@ def test_nav_console_present_on_all_pages(tmp_path):
         assert b'href="/soc"' in response.data
 
 
+def _nav_block(html):
+    """Return just the lab console <nav> markup from a page."""
+
+    start = html.index('<nav class="labnav"')
+    return html[start : html.index("</nav>", start)]
+
+
 def test_nav_console_does_not_link_to_admin_panel(tmp_path):
     # The admin panel must only be reachable via the broken-access-control
-    # exploit, so the console must not advertise a link to it.
-    response = make_app(tmp_path).test_client().get("/")
-    assert b'href="/dashboard"' not in response.data
+    # exploit, so the console must not advertise a direct link to it.
+    html = make_app(tmp_path).test_client().get("/search").get_data(as_text=True)
+    assert 'href="/dashboard"' not in _nav_block(html)
     # The console (and 403 page) still render on the gated route.
     denied = make_app(tmp_path).test_client().get("/dashboard")
     assert denied.status_code == 403
