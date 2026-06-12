@@ -608,7 +608,7 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `AUTH-BRUTE-FORCE-001` | Detect repeated login failures | 5 `login_failure` events for same `source_ip` + `username` within 5 minutes | Medium | Implemented |
 | `WEB-SQLI-PATTERN-001` | Detect SQL injection-like local lab input | `suspicious_input` event with `signal=sql_injection_like_pattern` | Medium | Implemented |
 | `WEB-XSS-PATTERN-001` | Detect XSS-like local lab input | `suspicious_input` event with `signal=xss_like_pattern` | Medium | Implemented |
-| `WEB-BROKEN-ACCESS-001` | Detect broken access control behavior | Future local access-control telemetry | High | Planned |
+| `BAC-PRIV-ESC-001` | Detect admin-panel privilege escalation via broken access control | `admin_access` event with `signal=broken_access_control_pattern` | High | Implemented |
 
 ## Log Schema
 
@@ -682,13 +682,14 @@ Completed:
 - [x] `WEB-SQLI-PATTERN-001`
 - [x] XSS-style local learning scenario
 - [x] `WEB-XSS-PATTERN-001`
+- [x] broken access control scenario (admin panel)
+- [x] `BAC-PRIV-ESC-001`
 - [x] reproducible brute-force demo workflow
 - [x] reproducible SQLi-like search demo workflow
 - [x] reproducible XSS-like comment demo workflow
 
 Planned:
 
-- [ ] broken access control scenario
 - [ ] optional SIEM/Wazuh export format
 - [x] HTML findings dashboard report (`--html`)
 - [ ] richer reporting, e.g. trends over time

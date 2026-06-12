@@ -12,7 +12,13 @@ sys.path.insert(0, str(DETECTION_ENGINE_ROOT))
 
 from detection_engine.models import LogEvent  # noqa: E402
 from detection_engine.parser import load_jsonl  # noqa: E402
-from detection_engine.rules import detect_all, detect_brute_force, detect_sqli_patterns, detect_xss_patterns  # noqa: E402
+from detection_engine.rules import (  # noqa: E402
+    detect_all,
+    detect_broken_access_control,
+    detect_brute_force,
+    detect_sqli_patterns,
+    detect_xss_patterns,
+)
 
 
 def write_jsonl(path, records):
@@ -86,6 +92,24 @@ def xss_input_event(source_ip="127.0.0.1", minute=0):
             "signal": "xss_like_pattern",
             "input_name": "comment",
             "request_path": "/comment",
+        },
+    )
+
+
+def admin_access_event(source_ip="127.0.0.1", username="guest", signal="broken_access_control_pattern", minute=0):
+    """Build an admin_access LogEvent for broken-access-control detection tests."""
+
+    timestamp = datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+    return LogEvent(
+        timestamp=timestamp,
+        event_type="admin_access",
+        source_ip=source_ip,
+        username=username,
+        raw={
+            "signal": signal,
+            "request_path": "/dashboard",
+            "granted": True,
+            "reason": "broken_access_control_role_param",
         },
     )
 
@@ -284,12 +308,39 @@ def test_xss_rule_ignores_non_matching_suspicious_input_signal():
     assert detect_xss_patterns([event]) == []
 
 
-def test_detect_all_returns_brute_force_sqli_and_xss_findings():
+def test_broken_access_control_rule_triggers_on_exploit_signal():
+    """Verify a broken-access-control admin_access event creates a finding."""
+
+    events = [admin_access_event(username="guest")]
+
+    findings = detect_broken_access_control(events)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.rule_id == "BAC-PRIV-ESC-001"
+    assert finding.severity == "High"
+    assert finding.source_ip == "127.0.0.1"
+    assert finding.username == "guest"
+    assert finding.event_count == 1
+    assert "/dashboard" in finding.reason
+    assert "Privilege escalation" in finding.reason
+
+
+def test_broken_access_control_rule_ignores_legitimate_admin_access():
+    """Verify authorized admin access (no exploit signal) does not trigger."""
+
+    legit = admin_access_event(username="admin", signal=None)
+
+    assert detect_broken_access_control([legit]) == []
+
+
+def test_detect_all_returns_every_rule_type():
     """Verify the combined rule runner emits all implemented rule types."""
 
     events = [event("login_failure", minute=minute) for minute in range(5)]
     events.append(suspicious_input_event(minute=6))
     events.append(xss_input_event(minute=7))
+    events.append(admin_access_event(minute=8))
 
     findings = detect_all(events)
 
@@ -297,4 +348,5 @@ def test_detect_all_returns_brute_force_sqli_and_xss_findings():
         "AUTH-BRUTE-FORCE-001",
         "WEB-SQLI-PATTERN-001",
         "WEB-XSS-PATTERN-001",
+        "BAC-PRIV-ESC-001",
     ]

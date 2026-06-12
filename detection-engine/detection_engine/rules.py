@@ -11,11 +11,14 @@ from .models import DetectionFinding, LogEvent
 BRUTE_FORCE_RULE_ID = "AUTH-BRUTE-FORCE-001"
 SQLI_RULE_ID = "WEB-SQLI-PATTERN-001"
 XSS_RULE_ID = "WEB-XSS-PATTERN-001"
+BROKEN_ACCESS_RULE_ID = "BAC-PRIV-ESC-001"
 SEVERITY = "Medium"
+SEVERITY_HIGH = "High"
 FAILURE_THRESHOLD = 5
 WINDOW = timedelta(minutes=5)
 SQLI_SIGNAL = "sql_injection_like_pattern"
 XSS_SIGNAL = "xss_like_pattern"
+BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -25,6 +28,7 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
         *detect_brute_force(events),
         *detect_sqli_patterns(events),
         *detect_xss_patterns(events),
+        *detect_broken_access_control(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -130,6 +134,42 @@ def _detect_suspicious_input_signal(
                 reason=(
                     f"{label} input signal {signal!r} observed "
                     f"for field {input_name!r} on {request_path}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_broken_access_control(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect admin-panel access granted via the broken access control exploit.
+
+    The vulnerable app logs an ``admin_access`` event carrying the
+    ``broken_access_control_pattern`` signal whenever a client-supplied role
+    parameter (rather than a real admin session) is trusted to authorize the
+    admin panel. Each such event is a privilege-escalation finding.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "admin_access":
+            continue
+        if event.raw.get("signal") != BROKEN_ACCESS_SIGNAL:
+            continue
+
+        request_path = str(event.raw.get("request_path") or "unknown")
+        findings.append(
+            DetectionFinding(
+                rule_id=BROKEN_ACCESS_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Privilege escalation: admin panel on {request_path} authorized via "
+                    f"client-supplied role for {event.username!r} from {event.source_ip}"
                 ),
             )
         )

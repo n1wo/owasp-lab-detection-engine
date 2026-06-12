@@ -132,6 +132,17 @@ def test_soc_route_shows_unknown_username_alert(tmp_path):
     assert b"unknown_user" in response.data
 
 
+def test_soc_route_shows_broken_access_control_alert(tmp_path):
+    client = make_app(tmp_path).test_client()
+
+    client.get("/dashboard?role=admin")  # the broken-access-control exploit
+    response = client.get("/soc")
+
+    assert response.status_code == 200
+    assert b"Privilege escalation to admin panel" in response.data
+    assert b"BAC-PRIV-ESC-001" in response.data
+
+
 def test_soc_route_serves_generated_report(tmp_path):
     report = tmp_path / "findings.html"
     report.write_text("<!doctype html><title>findings</title>SOC-REPORT-MARKER", encoding="utf-8")

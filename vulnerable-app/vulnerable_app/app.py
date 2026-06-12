@@ -584,6 +584,17 @@ def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
             rule=str(signal or "SUSPICIOUS-INPUT-LOCAL"),
             detail=f"Suspicious input submitted to {event.get('request_path', 'unknown path')}.",
         )
+    if event_type == "admin_access" and signal == BROKEN_ACCESS_SIGNAL:
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Privilege escalation to admin panel",
+            rule="BAC-PRIV-ESC-001",
+            detail=(
+                "Admin panel authorized via a client-supplied role parameter "
+                f"on {event.get('request_path', 'unknown path')} (broken access control)."
+            ),
+        )
     return None
 
 
