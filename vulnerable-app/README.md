@@ -4,9 +4,9 @@
 
 This folder contains the local-only vulnerable web application.
 
-The app currently implements a minimal login page and a local search page with
-configuration-controlled insecure and secure modes plus structured JSONL
-logging.
+The app currently implements a minimal login page, a local search page, and a
+local comment page with configuration-controlled insecure and secure modes plus
+structured JSONL logging.
 
 It must remain suitable for local lab use only and must not be deployed
 publicly.
@@ -15,6 +15,7 @@ publicly.
 
 - Flask-based login page
 - Flask-based search page
+- Flask-based comment page
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
 - consistent JSONL telemetry written to `logs/application.jsonl`
@@ -49,6 +50,17 @@ SQLi-like search events use `event_type=suspicious_input` and include:
 | `input_value` | Fictional local lab input value |
 | `reason` | `accepted_suspicious_input` or `rejected_suspicious_input` |
 
+## Comment Telemetry Schema
+
+XSS-like comment events use `event_type=suspicious_input` and include:
+
+| Field | Description |
+| --- | --- |
+| `signal` | `xss_like_pattern` for the current XSS-style lab |
+| `input_name` | Submitted input field, currently `comment` |
+| `input_value` | Fictional local lab input value |
+| `reason` | `rendered_suspicious_input` or `rejected_suspicious_input` |
+
 ## Local Commands
 
 From the repository root:
@@ -81,6 +93,7 @@ admin / admin-password
 
 ## Boundary
 
-The current vulnerable scenarios are a brute-forceable login flow and a
-SQLi-style suspicious search input flow in insecure mode. Future scenarios
-should keep vulnerable and secure behavior clearly separated.
+The current vulnerable scenarios are a brute-forceable login flow, a SQLi-style
+suspicious search input flow, and an XSS-style suspicious comment rendering flow
+in insecure mode. Future scenarios should keep vulnerable and secure behavior
+clearly separated.

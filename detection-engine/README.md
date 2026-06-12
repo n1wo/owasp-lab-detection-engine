@@ -14,13 +14,14 @@ Current responsibilities:
 - normalize log events
 - evaluate brute-force login detection logic for local lab scenarios
 - evaluate SQLi-like suspicious-input detection logic for local lab scenarios
+- evaluate XSS-like suspicious-input detection logic for local lab scenarios
 - report findings in a clear local output format
 - report malformed JSONL lines safely without stopping valid parsing
 - ignore unknown additional log fields safely while preserving the raw event
 
 Future responsibilities:
 
-- add rules for XSS-like and broken-access-control lab scenarios
+- add rules for broken-access-control lab scenarios
 - optionally export a Wazuh/SIEM-friendly format later
 
 ## Usage
@@ -53,7 +54,10 @@ It alerts when there are 5 or more failures within 5 minutes.
 `WEB-SQLI-PATTERN-001` detects `suspicious_input` events where `signal` is
 `sql_injection_like_pattern`.
 
-Both rules emit:
+`WEB-XSS-PATTERN-001` detects `suspicious_input` events where `signal` is
+`xss_like_pattern`.
+
+All rules emit:
 
 - `rule_id`
 - `severity`

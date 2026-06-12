@@ -26,6 +26,8 @@ LOCKOUT_FAILURE_LIMIT = 5
 LOCKOUT_WINDOW_SECONDS = 300
 SQLI_SIGNAL = "sql_injection_like_pattern"
 SQLI_MARKERS = ("' or '", '" or "', "--", "/*", "*/", " union ", " select ")
+XSS_SIGNAL = "xss_like_pattern"
+XSS_MARKERS = ("<script", "javascript:", "onerror=", "onload=", "<img", "<svg")
 
 
 @dataclass(frozen=True)
@@ -183,6 +185,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 logger,
                 request_id=request_id,
                 source_ip=source_ip,
+                input_name="q",
                 input_value=query,
                 status_code=status_code,
                 success=settings.mode == "insecure",
@@ -198,6 +201,54 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             query=query,
             message=message,
             results=results,
+        )
+        if status_code != 200:
+            return rendered, status_code
+        return rendered
+
+    @app.route("/comment", methods=["GET", "POST"])
+    def comment() -> Response | str:
+        """Render a local comment page and log XSS-like input when observed."""
+
+        comment_text = request.form.get("comment", "").strip() if request.method == "POST" else ""
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+        signal = _xss_signal(comment_text)
+        status_code = 200
+        message = None
+        rendered_comment = ""
+
+        if comment_text and signal:
+            if settings.mode == "secure":
+                status_code = 400
+                message = "Comment input was rejected."
+                reason = "rejected_suspicious_input"
+            else:
+                message = "Insecure mode rendered suspicious-looking comment input."
+                rendered_comment = comment_text
+                reason = "rendered_suspicious_input"
+
+            _log_suspicious_input_event(
+                logger,
+                request_id=request_id,
+                source_ip=source_ip,
+                input_name="comment",
+                input_value=comment_text,
+                status_code=status_code,
+                success=settings.mode == "insecure",
+                reason=reason,
+                signal=signal,
+            )
+        elif comment_text:
+            rendered_comment = comment_text
+
+        rendered = render_template_string(
+            COMMENT_TEMPLATE,
+            mode=settings.mode,
+            comment=comment_text,
+            rendered_comment=rendered_comment,
+            render_comment_as_html=settings.mode == "insecure" and bool(signal),
+            message=message,
         )
         if status_code != 200:
             return rendered, status_code
@@ -292,6 +343,15 @@ def _sqli_signal(value: str) -> str | None:
     return None
 
 
+def _xss_signal(value: str) -> str | None:
+    """Return the XSS-like signal name when local demo input matches markers."""
+
+    normalized = value.lower()
+    if any(marker in normalized for marker in XSS_MARKERS):
+        return XSS_SIGNAL
+    return None
+
+
 def _common_event_fields(status_code: int, request_id: str) -> dict[str, Any]:
     """Build request metadata shared by all local lab telemetry events."""
 
@@ -336,6 +396,7 @@ def _log_suspicious_input_event(
     *,
     request_id: str,
     source_ip: str,
+    input_name: str,
     input_value: str,
     status_code: int,
     success: bool,
@@ -352,7 +413,7 @@ def _log_suspicious_input_event(
             **_common_event_fields(status_code, request_id),
             "reason": reason,
             "signal": signal,
-            "input_name": "q",
+            "input_name": input_name,
             "input_value": input_value,
             "success": success,
         }
@@ -579,6 +640,70 @@ SEARCH_TEMPLATE = """
       {% endif %}
     </div>
     <div class="footer">WEB-SQLI-PATTERN-001 &middot; logs/application.jsonl</div>
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES)
+
+
+COMMENT_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Comment</title>
+    <style>{styles}
+      .comment-preview {
+        margin-top: 1.2rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.8rem;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.02);
+        overflow-wrap: anywhere;
+      }
+      textarea {
+        min-height: 7rem;
+        resize: vertical;
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        padding: 0.65rem 0.8rem;
+        outline: none;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      textarea:focus { border-color: var(--accent-strong); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18); }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body>
+    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <div class="card">
+      <h1>Comment</h1>
+      <p class="subtitle">XSS telemetry lab &mdash; suspicious comment input is logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. Do not deploy publicly.</div>
+      {% if message %}<div class="notice error">&#9940;&nbsp; {{ message }}</div>{% endif %}
+      <form method="post" action="/comment">
+        <label>
+          Comment
+          <textarea name="comment" autocomplete="off" placeholder="Share a local lab note">{{ comment }}</textarea>
+        </label>
+        <button type="submit">Post comment</button>
+      </form>
+      {% if rendered_comment %}
+        <h2>Preview</h2>
+        <div class="comment-preview">
+          {% if render_comment_as_html %}{{ rendered_comment|safe }}{% else %}{{ rendered_comment }}{% endif %}
+        </div>
+      {% endif %}
+    </div>
+    <div class="footer">WEB-XSS-PATTERN-001 &middot; logs/application.jsonl</div>
   </body>
 </html>
 """.replace("{styles}", BASE_STYLES)

@@ -12,7 +12,7 @@ sys.path.insert(0, str(DETECTION_ENGINE_ROOT))
 
 from detection_engine.models import LogEvent  # noqa: E402
 from detection_engine.parser import load_jsonl  # noqa: E402
-from detection_engine.rules import detect_all, detect_brute_force, detect_sqli_patterns  # noqa: E402
+from detection_engine.rules import detect_all, detect_brute_force, detect_sqli_patterns, detect_xss_patterns  # noqa: E402
 
 
 def write_jsonl(path, records):
@@ -69,6 +69,23 @@ def suspicious_input_event(source_ip="127.0.0.1", minute=0):
             "signal": "sql_injection_like_pattern",
             "input_name": "q",
             "request_path": "/search",
+        },
+    )
+
+
+def xss_input_event(source_ip="127.0.0.1", minute=0):
+    """Build a suspicious_input LogEvent for XSS detection tests."""
+
+    timestamp = datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+    return LogEvent(
+        timestamp=timestamp,
+        event_type="suspicious_input",
+        source_ip=source_ip,
+        username="anonymous",
+        raw={
+            "signal": "xss_like_pattern",
+            "input_name": "comment",
+            "request_path": "/comment",
         },
     )
 
@@ -239,15 +256,45 @@ def test_sqli_rule_ignores_non_matching_suspicious_input_signal():
     assert detect_sqli_patterns([event]) == []
 
 
-def test_detect_all_returns_brute_force_and_sqli_findings():
+def test_xss_rule_triggers_on_matching_suspicious_input_signal():
+    """Verify XSS-like suspicious-input telemetry creates a finding."""
+
+    events = [xss_input_event()]
+
+    findings = detect_xss_patterns(events)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.rule_id == "WEB-XSS-PATTERN-001"
+    assert finding.severity == "Medium"
+    assert finding.source_ip == "127.0.0.1"
+    assert finding.username == "anonymous"
+    assert finding.event_count == 1
+    assert finding.first_seen == events[0].timestamp
+    assert finding.last_seen == events[0].timestamp
+    assert "xss_like_pattern" in finding.reason
+    assert "/comment" in finding.reason
+
+
+def test_xss_rule_ignores_non_matching_suspicious_input_signal():
+    """Verify unrelated suspicious-input signals do not trigger XSS findings."""
+
+    event = suspicious_input_event()
+
+    assert detect_xss_patterns([event]) == []
+
+
+def test_detect_all_returns_brute_force_sqli_and_xss_findings():
     """Verify the combined rule runner emits all implemented rule types."""
 
     events = [event("login_failure", minute=minute) for minute in range(5)]
     events.append(suspicious_input_event(minute=6))
+    events.append(xss_input_event(minute=7))
 
     findings = detect_all(events)
 
     assert [finding.rule_id for finding in findings] == [
         "AUTH-BRUTE-FORCE-001",
         "WEB-SQLI-PATTERN-001",
+        "WEB-XSS-PATTERN-001",
     ]

@@ -190,3 +190,71 @@ def test_search_normal_query_does_not_emit_suspicious_input_log(tmp_path):
     assert response.status_code == 200
     assert b"Local lab result for test-user" in response.data
     assert not log_file.exists()
+
+
+def test_insecure_comment_renders_xss_like_input_and_logs_signal(tmp_path):
+    """Verify insecure comment accepts XSS-like input and logs a signal."""
+
+    log_file = tmp_path / "app.jsonl"
+    app = create_app({"LAB_MODE": "insecure", "LAB_LOG_FILE": log_file})
+    payload = "<script>alert('local-lab')</script>"
+
+    response = app.test_client().post(
+        "/comment",
+        data={"comment": payload},
+        headers={"User-Agent": "pytest-local"},
+    )
+
+    assert response.status_code == 200
+    assert b"Insecure mode rendered suspicious-looking comment input." in response.data
+    assert payload.encode() in response.data
+
+    events = read_jsonl(log_file)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "suspicious_input"
+    assert events[0]["signal"] == "xss_like_pattern"
+    assert events[0]["lab_mode"] == "insecure"
+    assert events[0]["reason"] == "rendered_suspicious_input"
+    assert events[0]["source_ip"] == "127.0.0.1"
+    assert events[0]["username"] == "anonymous"
+    assert events[0]["request_path"] == "/comment"
+    assert events[0]["http_method"] == "POST"
+    assert events[0]["status_code"] == 200
+    assert events[0]["success"] is True
+    assert events[0]["input_name"] == "comment"
+
+
+def test_secure_comment_rejects_xss_like_input_and_logs_signal(tmp_path):
+    """Verify secure comment rejects XSS-like input and logs the attempt."""
+
+    log_file = tmp_path / "app.jsonl"
+    app = create_app({"LAB_MODE": "secure", "LAB_LOG_FILE": log_file})
+    payload = "<script>alert('local-lab')</script>"
+
+    response = app.test_client().post("/comment", data={"comment": payload})
+
+    assert response.status_code == 400
+    assert b"Comment input was rejected." in response.data
+    assert payload.encode() not in response.data
+
+    events = read_jsonl(log_file)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "suspicious_input"
+    assert events[0]["signal"] == "xss_like_pattern"
+    assert events[0]["lab_mode"] == "secure"
+    assert events[0]["reason"] == "rejected_suspicious_input"
+    assert events[0]["status_code"] == 400
+    assert events[0]["success"] is False
+
+
+def test_comment_normal_input_does_not_emit_suspicious_input_log(tmp_path):
+    """Verify ordinary comments render without suspicious-input telemetry."""
+
+    log_file = tmp_path / "app.jsonl"
+    app = create_app({"LAB_MODE": "secure", "LAB_LOG_FILE": log_file})
+
+    response = app.test_client().post("/comment", data={"comment": "hello local lab"})
+
+    assert response.status_code == 200
+    assert b"hello local lab" in response.data
+    assert not log_file.exists()

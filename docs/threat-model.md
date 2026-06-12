@@ -29,10 +29,10 @@ The current implemented scenarios are:
 
 - brute-forceable login in insecure mode
 - SQL injection-style suspicious search input in insecure mode
+- reflected XSS-style unsafe comment rendering in insecure mode
 
 The lab is planned to add these controlled scenarios later:
 
-- reflected or stored XSS-style unsafe rendering
 - broken access control
 
 Each scenario should eventually include:
@@ -77,6 +77,25 @@ In `LAB_MODE=secure`, the same route has basic safer behavior:
 
 This scenario does not connect to a real database. It models the telemetry and
 detection workflow without creating a public or production attack surface.
+
+## Current XSS-Style Comment Scenario
+
+In `LAB_MODE=insecure`, the local `/comment` route intentionally renders
+XSS-like comment input as HTML in the local preview:
+
+- suspicious-looking comment input is accepted
+- the submitted value is rendered in the local page preview
+- a `suspicious_input` event is logged with `signal=xss_like_pattern`
+
+In `LAB_MODE=secure`, the same route has basic safer behavior:
+
+- suspicious-looking comment input is rejected with HTTP `400`
+- the response is generic
+- a `suspicious_input` event is still logged so the detection engine can alert
+  on the attempted input
+
+This scenario is a local telemetry and rendering demonstration only. It should
+not be used as a guide for testing third-party applications.
 
 ## Assumptions
 

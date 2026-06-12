@@ -154,3 +154,70 @@ python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
+## XSS-Style Comment Scenario
+
+The XSS-style demo sends one local comment submission to `/comment` with a
+fictional XSS-like input string. The app records the request as
+`suspicious_input` telemetry.
+
+In insecure mode, the route renders the submitted value as HTML in the local
+preview. In secure mode, the route rejects the same input with HTTP `400`.
+Both modes log the suspicious input so the detector can emit a finding.
+
+### Logs Generated
+
+The app writes a `suspicious_input` event to:
+
+```text
+logs/application.jsonl
+```
+
+The XSS-style event includes:
+
+- `event_type`: `suspicious_input`
+- `signal`: `xss_like_pattern`
+- `request_path`: `/comment`
+- `input_name`: `comment`
+- `lab_mode`
+- `reason`
+
+### Why The Rule Triggers
+
+`WEB-XSS-PATTERN-001` triggers when the detection engine sees a
+`suspicious_input` event with `signal` set to `xss_like_pattern`.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `WEB-XSS-PATTERN-001`
+- `severity`: `Medium`
+- `source_ip`
+- `username`: `anonymous`
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app:
+
+```bash
+docker compose up --build
+```
+
+In another terminal, generate local XSS-like comment activity:
+
+```bash
+python scripts/generate_xss_demo.py
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+

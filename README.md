@@ -10,11 +10,13 @@
 
 OWASP Lab Detection Engine is a local-only cybersecurity learning lab that
 combines a deliberately vulnerable Flask web app, structured JSONL security
-telemetry, a Python detection engine, and a reproducible brute-force demo
-workflow.
+telemetry, a Python detection engine, and reproducible localhost demo
+workflows.
 
-The project currently focuses on the login brute-force scenario and detects
-repeated failed login attempts with `AUTH-BRUTE-FORCE-001`.
+The project currently covers three OWASP-oriented scenarios: it detects
+repeated failed login attempts with `AUTH-BRUTE-FORCE-001`, SQL-injection-like
+input with `WEB-SQLI-PATTERN-001`, and XSS-like input with
+`WEB-XSS-PATTERN-001`.
 
 > **Safety warning:** This project contains intentionally vulnerable examples
 > for local educational use only. Do not deploy it to the public internet and
@@ -37,6 +39,7 @@ This project demonstrates:
 - [x] Minimal Flask vulnerable app
 - [x] Login page
 - [x] Search page for SQLi-style local learning
+- [x] Comment page for XSS-style local learning
 - [x] `LAB_MODE=insecure|secure`
 - [x] Insecure mode allows repeated login attempts
 - [x] Secure mode uses generic errors and simple lockout behavior
@@ -44,6 +47,7 @@ This project demonstrates:
 - [x] Python JSONL parser
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
+- [x] Detection rule `WEB-XSS-PATTERN-001`
 - [x] CLI with human-readable and JSON output
 - [x] Self-contained HTML findings dashboard via `--html`
 - [x] Reproducible localhost-only demo scripts
@@ -53,10 +57,10 @@ This project demonstrates:
 
 | Component | Purpose | Path |
 | --- | --- | --- |
-| Vulnerable App | Local Flask app that generates login and search telemetry | `vulnerable-app/` |
+| Vulnerable App | Local Flask app that generates login, search, and comment telemetry | `vulnerable-app/` |
 | Logs | JSONL security telemetry | `logs/` |
 | Detection Engine | Parses logs and produces findings | `detection-engine/` |
-| Demo Scripts | Generate local brute-force and SQLi-like demo activity | `scripts/` |
+| Demo Scripts | Generate local brute-force, SQLi-like, and XSS-like demo activity | `scripts/` |
 | Documentation | Architecture, detection rules, demo walkthrough | `docs/` |
 | Tests | App, parser, detection, and demo tests | `tests/` |
 
@@ -152,7 +156,7 @@ python -m pytest
 Current expected result:
 
 ```text
-30 passed
+46 passed
 ```
 
 On Windows/OneDrive, pytest may print cache or temp-directory warnings even
@@ -362,7 +366,55 @@ logs the suspicious input attempt for detection.
 If the SQLi demo reports HTTP `404`, the running Docker container is stale.
 Stop it and restart with `docker compose up --build`.
 
-### 8. Optional: Clean The Generated Log
+### 8. Run The XSS-Style Comment Demo
+
+Go back to the repository root in Terminal 2:
+
+```powershell
+cd ..
+```
+
+Generate one local XSS-like comment submission:
+
+```powershell
+python scripts\generate_xss_demo.py
+```
+
+Expected output in insecure mode:
+
+```text
+Generated local XSS-like comment demo activity.
+Target: http://127.0.0.1:8080
+Comment path: /comment
+HTTP status observed: 200
+```
+
+The app writes a `suspicious_input` event with:
+
+```text
+signal = xss_like_pattern
+```
+
+Run the detection engine again:
+
+```powershell
+cd detection-engine
+python -m detection_engine --log-file ..\logs\application.jsonl
+```
+
+Expected additional finding:
+
+```text
+WEB-XSS-PATTERN-001 [Medium]
+```
+
+In secure mode, the same comment demo should return HTTP `400`, but it still
+logs the suspicious input attempt for detection.
+
+If the XSS demo reports HTTP `404`, the running Docker container is stale.
+Stop it and restart with `docker compose up --build`.
+
+### 9. Optional: Clean The Generated Log
 
 If you want a fresh demo run, stop the app if needed and remove the generated
 runtime log:
@@ -423,6 +475,19 @@ The SQLi demo script:
 - writes `suspicious_input` telemetry to `logs/application.jsonl`
 - is designed to trigger `WEB-SQLI-PATTERN-001`
 
+Generate XSS-like local comment activity:
+
+```bash
+python scripts/generate_xss_demo.py
+```
+
+The XSS demo script:
+
+- only targets `localhost` / `127.0.0.1`
+- sends one XSS-like comment submission to `/comment`
+- writes `suspicious_input` telemetry to `logs/application.jsonl`
+- is designed to trigger `WEB-XSS-PATTERN-001`
+
 ## Inspect Generated Logs
 
 macOS/Linux:
@@ -441,8 +506,8 @@ Each event includes fields such as `timestamp`, `event_type`,
 `source_ip`, `username`, `user_agent`, `request_path`, `http_method`,
 `status_code`, `lab_mode`, `reason`, and `session_id`.
 
-SQLi-like search telemetry also includes `signal`, `input_name`, and
-`input_value`.
+SQLi-like search and XSS-like comment telemetry also include `signal`,
+`input_name`, and `input_value`.
 
 ## Run The Detection Engine
 
@@ -466,6 +531,8 @@ Expected finding:
   5 minutes
 - Rule: `WEB-SQLI-PATTERN-001` when the log contains a `suspicious_input`
   event with `signal` set to `sql_injection_like_pattern`
+- Rule: `WEB-XSS-PATTERN-001` when the log contains a `suspicious_input`
+  event with `signal` set to `xss_like_pattern`
 
 ## Full Demo Flow
 
@@ -487,6 +554,7 @@ In a second terminal, from the repository root:
 source .venv/bin/activate
 python scripts/generate_login_demo.py
 python scripts/generate_sqli_demo.py
+python scripts/generate_xss_demo.py
 cd detection-engine
 python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
@@ -510,6 +578,7 @@ In a second PowerShell terminal, from the repository root:
 .venv\Scripts\activate
 python scripts/generate_login_demo.py
 python scripts/generate_sqli_demo.py
+python scripts/generate_xss_demo.py
 cd detection-engine
 python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
@@ -521,7 +590,7 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | --- | --- | --- | --- | --- |
 | `AUTH-BRUTE-FORCE-001` | Detect repeated login failures | 5 `login_failure` events for same `source_ip` + `username` within 5 minutes | Medium | Implemented |
 | `WEB-SQLI-PATTERN-001` | Detect SQL injection-like local lab input | `suspicious_input` event with `signal=sql_injection_like_pattern` | Medium | Implemented |
-| `WEB-XSS-PATTERN-001` | Detect XSS-like local lab input | Future `suspicious_input` telemetry | Medium | Planned |
+| `WEB-XSS-PATTERN-001` | Detect XSS-like local lab input | `suspicious_input` event with `signal=xss_like_pattern` | Medium | Implemented |
 | `WEB-BROKEN-ACCESS-001` | Detect broken access control behavior | Future local access-control telemetry | High | Planned |
 
 ## Log Schema
@@ -543,8 +612,8 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `session_id` | Fake/local session ID or null | `null` |
 | `request_id` | Per-request identifier | `fake-request-001` |
 | `success` | Whether login succeeded | `false` |
-| `signal` | Suspicious-input signal, when present | `sql_injection_like_pattern` |
-| `input_name` | Input field name, when present | `q` |
+| `signal` | Suspicious-input signal, when present | `sql_injection_like_pattern` or `xss_like_pattern` |
+| `input_name` | Input field name, when present | `q` or `comment` |
 | `input_value` | Local lab input value, when present | `test-user' OR '1'='1` |
 
 Supported current `event_type` values:
@@ -570,6 +639,7 @@ Current test coverage includes:
 - invalid JSONL handling
 - brute-force detection rule
 - SQLi-like pattern detection rule
+- XSS-like pattern detection rule
 - demo script safety checks
 - localhost-only validation
 
@@ -593,12 +663,14 @@ Completed:
 - [x] `AUTH-BRUTE-FORCE-001`
 - [x] SQL injection-style local learning scenario
 - [x] `WEB-SQLI-PATTERN-001`
+- [x] XSS-style local learning scenario
+- [x] `WEB-XSS-PATTERN-001`
 - [x] reproducible brute-force demo workflow
 - [x] reproducible SQLi-like search demo workflow
+- [x] reproducible XSS-like comment demo workflow
 
 Planned:
 
-- [ ] XSS-style local learning scenario
 - [ ] broken access control scenario
 - [ ] optional SIEM/Wazuh export format
 - [x] HTML findings dashboard report (`--html`)

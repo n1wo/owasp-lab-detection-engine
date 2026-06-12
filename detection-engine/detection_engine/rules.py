@@ -10,10 +10,12 @@ from .models import DetectionFinding, LogEvent
 
 BRUTE_FORCE_RULE_ID = "AUTH-BRUTE-FORCE-001"
 SQLI_RULE_ID = "WEB-SQLI-PATTERN-001"
+XSS_RULE_ID = "WEB-XSS-PATTERN-001"
 SEVERITY = "Medium"
 FAILURE_THRESHOLD = 5
 WINDOW = timedelta(minutes=5)
 SQLI_SIGNAL = "sql_injection_like_pattern"
+XSS_SIGNAL = "xss_like_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -22,6 +24,7 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
     findings = [
         *detect_brute_force(events),
         *detect_sqli_patterns(events),
+        *detect_xss_patterns(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -78,18 +81,46 @@ def _first_threshold_window(
 def detect_sqli_patterns(events: list[LogEvent]) -> list[DetectionFinding]:
     """Detect SQLi-like suspicious input events from local lab telemetry."""
 
+    return _detect_suspicious_input_signal(
+        events=events,
+        rule_id=SQLI_RULE_ID,
+        signal=SQLI_SIGNAL,
+        label="SQL injection-like",
+    )
+
+
+def detect_xss_patterns(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect XSS-like suspicious input events from local lab telemetry."""
+
+    return _detect_suspicious_input_signal(
+        events=events,
+        rule_id=XSS_RULE_ID,
+        signal=XSS_SIGNAL,
+        label="XSS-like",
+    )
+
+
+def _detect_suspicious_input_signal(
+    *,
+    events: list[LogEvent],
+    rule_id: str,
+    signal: str,
+    label: str,
+) -> list[DetectionFinding]:
+    """Create one finding for each matching suspicious-input signal."""
+
     findings: list[DetectionFinding] = []
     for event in events:
         if event.event_type != "suspicious_input":
             continue
-        if event.raw.get("signal") != SQLI_SIGNAL:
+        if event.raw.get("signal") != signal:
             continue
 
         input_name = str(event.raw.get("input_name") or "unknown")
         request_path = str(event.raw.get("request_path") or "unknown")
         findings.append(
             DetectionFinding(
-                rule_id=SQLI_RULE_ID,
+                rule_id=rule_id,
                 severity=SEVERITY,
                 source_ip=event.source_ip,
                 username=event.username,
@@ -97,7 +128,7 @@ def detect_sqli_patterns(events: list[LogEvent]) -> list[DetectionFinding]:
                 first_seen=event.timestamp,
                 last_seen=event.timestamp,
                 reason=(
-                    f"SQL injection-like input signal {SQLI_SIGNAL!r} observed "
+                    f"{label} input signal {signal!r} observed "
                     f"for field {input_name!r} on {request_path}"
                 ),
             )

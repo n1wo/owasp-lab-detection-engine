@@ -3,8 +3,9 @@
 # Architecture
 
 This document describes the local lab architecture. The vulnerable app has a
-minimal login implementation, a local search scenario, and a detection engine
-that parses JSONL logs for brute-force and SQLi-like pattern detection.
+minimal login implementation, local search and comment scenarios, and a
+detection engine that parses JSONL logs for brute-force, SQLi-like, and
+XSS-like pattern detection.
 
 ## Components
 
@@ -12,7 +13,8 @@ that parses JSONL logs for brute-force and SQLi-like pattern detection.
 
 The vulnerable app is a local Flask web application with configurable
 vulnerable and secure modes. The current implementation includes a login page,
-a search page, and structured logs for login outcomes and suspicious input.
+a search page, a comment page, and structured logs for login outcomes and
+suspicious input.
 
 ### Structured Logs
 
@@ -36,7 +38,7 @@ Current telemetry schema:
 | `lab_mode` | `insecure` or `secure` |
 | `reason` | Short machine-readable reason |
 | `session_id` | Fake/local session identifier when available, otherwise `null` |
-| `signal` | Suspicious-input signal such as `sql_injection_like_pattern`, when present |
+| `signal` | Suspicious-input signal such as `sql_injection_like_pattern` or `xss_like_pattern`, when present |
 | `input_name` | Submitted field name for suspicious input, when present |
 | `input_value` | Local lab input value for suspicious input, when present |
 
@@ -44,8 +46,9 @@ Current telemetry schema:
 
 The Python detection engine reads local JSONL logs, normalizes events, applies
 implemented detection rules, and emits local findings. Current rules are
-`AUTH-BRUTE-FORCE-001` and `WEB-SQLI-PATTERN-001`. The engine should focus on
-defensive detection behavior rather than offensive instructions.
+`AUTH-BRUTE-FORCE-001`, `WEB-SQLI-PATTERN-001`, and
+`WEB-XSS-PATTERN-001`. The engine should focus on defensive detection behavior
+rather than offensive instructions.
 
 ### Optional SIEM/Wazuh Export
 
