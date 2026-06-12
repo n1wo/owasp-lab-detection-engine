@@ -359,41 +359,176 @@ def _log_suspicious_input_event(
     )
 
 
+BASE_STYLES = """
+      :root {
+        --bg: #0b1120;
+        --bg-glow-1: rgba(34, 211, 238, 0.08);
+        --bg-glow-2: rgba(99, 102, 241, 0.10);
+        --surface: #111a2e;
+        --surface-2: #16213a;
+        --border: #243352;
+        --border-strong: #31436b;
+        --text: #e2e8f0;
+        --text-muted: #8fa3c4;
+        --text-faint: #64748b;
+        --accent: #22d3ee;
+        --accent-strong: #06b6d4;
+        --accent-contrast: #06222b;
+        --danger-bg: rgba(248, 113, 113, 0.10);
+        --danger-border: rgba(248, 113, 113, 0.35);
+        --danger-text: #fca5a5;
+        --warn-bg: rgba(251, 191, 36, 0.08);
+        --warn-border: rgba(251, 191, 36, 0.30);
+        --warn-text: #fcd34d;
+        --ok: #34d399;
+        --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem 1rem;
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(60rem 30rem at 15% 0%, var(--bg-glow-2), transparent 60%),
+          radial-gradient(50rem 28rem at 85% 100%, var(--bg-glow-1), transparent 60%),
+          var(--bg);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 1.5rem;
+        font-family: var(--mono);
+        font-size: 0.95rem;
+        letter-spacing: 0.08em;
+        color: var(--text-muted);
+        text-transform: uppercase;
+      }
+      .brand .dot {
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 10px var(--accent);
+      }
+      .card {
+        width: 100%;
+        max-width: 26rem;
+        background: linear-gradient(180deg, var(--surface-2), var(--surface));
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 2rem;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      }
+      h1 { margin: 0 0 0.35rem; font-size: 1.35rem; font-weight: 600; }
+      .subtitle { margin: 0 0 1.4rem; color: var(--text-muted); font-size: 0.9rem; }
+      .badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+      .badge {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 0.3rem 0.6rem;
+        border-radius: 999px;
+        border: 1px solid var(--border-strong);
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .badge.mode-insecure { color: var(--warn-text); border-color: var(--warn-border); background: var(--warn-bg); }
+      .badge.mode-secure { color: var(--ok); border-color: rgba(52, 211, 153, 0.35); background: rgba(52, 211, 153, 0.08); }
+      .notice {
+        display: flex;
+        gap: 0.6rem;
+        align-items: flex-start;
+        font-size: 0.83rem;
+        line-height: 1.45;
+        border-radius: 10px;
+        padding: 0.7rem 0.85rem;
+        margin-bottom: 1.2rem;
+      }
+      .notice.warning { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); }
+      .notice.error { background: var(--danger-bg); border: 1px solid var(--danger-border); color: var(--danger-text); }
+      label { display: grid; gap: 0.4rem; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; }
+      input {
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        padding: 0.65rem 0.8rem;
+        outline: none;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      input:focus { border-color: var(--accent-strong); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18); }
+      button {
+        width: 100%;
+        font: inherit;
+        font-weight: 600;
+        color: var(--accent-contrast);
+        background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+        border: none;
+        border-radius: 8px;
+        padding: 0.7rem;
+        cursor: pointer;
+        margin-top: 0.4rem;
+        transition: filter 0.15s, transform 0.05s;
+      }
+      button:hover { filter: brightness(1.1); }
+      button:active { transform: translateY(1px); }
+      .footer {
+        margin-top: 1.5rem;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--text-faint);
+        letter-spacing: 0.05em;
+      }
+      .meta { font-family: var(--mono); font-size: 0.8rem; color: var(--text-muted); }
+      .meta strong { color: var(--accent); font-weight: 600; }
+"""
+
+
 LOGIN_TEMPLATE = """
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Local Lab Login</title>
-    <style>
-      body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 4rem auto; padding: 0 1rem; }
-      form { display: grid; gap: 0.75rem; border: 1px solid #ccc; padding: 1rem; }
-      label { display: grid; gap: 0.25rem; }
-      input, button { font: inherit; padding: 0.5rem; }
-      .warning { color: #7a2e00; }
-      .message { color: #8a0000; }
-    </style>
+    <title>OWASP Lab &middot; Sign In</title>
+    <style>{styles}</style>
   </head>
   <body>
-    <h1>Local Lab Login</h1>
-    <p class="warning">Local educational lab only. Do not deploy publicly.</p>
-    <p>Mode: <strong>{{ mode }}</strong></p>
-    {% if message %}<p class="message">{{ message }}</p>{% endif %}
-    <form method="post" action="/login">
-      <label>
-        Username
-        <input name="username" autocomplete="username" required>
-      </label>
-      <label>
-        Password
-        <input name="password" type="password" autocomplete="current-password" required>
-      </label>
-      <button type="submit">Sign in</button>
-    </form>
+    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <div class="card">
+      <h1>Sign in</h1>
+      <p class="subtitle">Authentication telemetry lab &mdash; login events are logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. Do not deploy publicly.</div>
+      {% if message %}<div class="notice error">&#9940;&nbsp; {{ message }}</div>{% endif %}
+      <form method="post" action="/login">
+        <label>
+          Username
+          <input name="username" autocomplete="username" placeholder="test-user" required>
+        </label>
+        <label>
+          Password
+          <input name="password" type="password" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" required>
+        </label>
+        <button type="submit">Sign in</button>
+      </form>
+    </div>
+    <div class="footer">AUTH-BRUTE-FORCE-001 &middot; logs/application.jsonl</div>
   </body>
 </html>
-"""
+""".replace("{styles}", BASE_STYLES)
 
 
 SEARCH_TEMPLATE = """
@@ -402,37 +537,51 @@ SEARCH_TEMPLATE = """
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Local Lab Search</title>
-    <style>
-      body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 4rem auto; padding: 0 1rem; }
-      form { display: grid; gap: 0.75rem; border: 1px solid #ccc; padding: 1rem; }
-      label { display: grid; gap: 0.25rem; }
-      input, button { font: inherit; padding: 0.5rem; }
-      .warning { color: #7a2e00; }
-      .message { color: #8a0000; }
+    <title>OWASP Lab &middot; Search</title>
+    <style>{styles}
+      .results { margin: 1.2rem 0 0; padding: 0; list-style: none; }
+      .results li {
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.6rem 0.8rem;
+        margin-bottom: 0.5rem;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
     </style>
   </head>
   <body>
-    <h1>Local Lab Search</h1>
-    <p class="warning">Local educational lab only. Do not deploy publicly.</p>
-    <p>Mode: <strong>{{ mode }}</strong></p>
-    {% if message %}<p class="message">{{ message }}</p>{% endif %}
-    <form method="get" action="/search">
-      <label>
-        Search query
-        <input name="q" value="{{ query }}" autocomplete="off">
-      </label>
-      <button type="submit">Search</button>
-    </form>
-    {% if results %}
-      <h2>Results</h2>
-      <ul>
-        {% for result in results %}<li>{{ result }}</li>{% endfor %}
-      </ul>
-    {% endif %}
+    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <div class="card">
+      <h1>Search</h1>
+      <p class="subtitle">SQLi telemetry lab &mdash; suspicious input is logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. Do not deploy publicly.</div>
+      {% if message %}<div class="notice error">&#9940;&nbsp; {{ message }}</div>{% endif %}
+      <form method="get" action="/search">
+        <label>
+          Search query
+          <input name="q" value="{{ query }}" autocomplete="off" placeholder="e.g. demo account">
+        </label>
+        <button type="submit">Search</button>
+      </form>
+      {% if results %}
+        <h2>Results</h2>
+        <ul class="results">
+          {% for result in results %}<li>{{ result }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+    <div class="footer">WEB-SQLI-PATTERN-001 &middot; logs/application.jsonl</div>
   </body>
 </html>
-"""
+""".replace("{styles}", BASE_STYLES)
 
 
 DASHBOARD_TEMPLATE = """
@@ -441,12 +590,25 @@ DASHBOARD_TEMPLATE = """
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Local Lab Dashboard</title>
+    <title>OWASP Lab &middot; Dashboard</title>
+    <style>{styles}</style>
   </head>
   <body>
-    <h1>Local Lab Dashboard</h1>
-    <p>Signed in as {{ username }} in {{ mode }} mode.</p>
-    <p>This page is part of the local-only educational lab.</p>
+    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <div class="card">
+      <h1>Dashboard</h1>
+      <p class="subtitle">Signed in as {{ username }} in {{ mode }} mode.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <p class="meta">session: <strong>{{ username }}</strong></p>
+      <div class="notice warning">&#9888;&#65039;&nbsp; This page is part of the local-only educational lab.</div>
+      <form method="get" action="/">
+        <button type="submit">Sign out</button>
+      </form>
+    </div>
+    <div class="footer">AUTH-BRUTE-FORCE-001 &middot; logs/application.jsonl</div>
   </body>
 </html>
-"""
+""".replace("{styles}", BASE_STYLES)
