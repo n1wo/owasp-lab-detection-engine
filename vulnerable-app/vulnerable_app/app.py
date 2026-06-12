@@ -693,7 +693,7 @@ NAV_SNIPPET = """
     <a href="/">Brute force &middot; Login</a>
     <a href="/search">SQL injection &middot; Search</a>
     <a href="/comment">XSS &middot; Comment</a>
-    <a href="/dashboard">Dashboard</a>
+    <a href="/dashboard">Admin panel</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
     <div class="labnav-group">Vulnerabilities</div>
@@ -963,13 +963,13 @@ DASHBOARD_TEMPLATE = """
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OWASP Lab &middot; Dashboard</title>
+    <title>OWASP Lab &middot; Admin Panel</title>
     <style>{styles}</style>
   </head>
   <body>
     <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
     <div class="card">
-      <h1>Dashboard</h1>
+      <h1>Admin panel</h1>
       <p class="subtitle">Signed in as {{ username }} in {{ mode }} mode.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
