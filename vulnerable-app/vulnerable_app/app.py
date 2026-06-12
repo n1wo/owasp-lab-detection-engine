@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 import os
 import time
@@ -12,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from urllib.parse import urlsplit
 
 from flask import Flask, Response, current_app, redirect, render_template_string, request, send_file, session, url_for
 
@@ -30,6 +32,9 @@ SQLI_MARKERS = ("' or '", '" or "', "--", "/*", "*/", " union ", " select ")
 XSS_SIGNAL = "xss_like_pattern"
 XSS_MARKERS = ("<script", "javascript:", "onerror=", "onload=", "<img", "<svg")
 BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
+SSRF_SIGNAL = "ssrf_internal_target_pattern"
+SSRF_ALLOWED_SCHEMES = {"http", "https"}
+SSRF_INTERNAL_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal"}
 
 
 @dataclass(frozen=True)
@@ -358,6 +363,65 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             return rendered, status_code
         return rendered
 
+    @app.route("/fetch", methods=["GET", "POST"])
+    def fetch() -> Response | str:
+        """Server-side URL fetcher guarded by an intentionally broken SSRF check.
+
+        The lab never performs real network I/O: it simulates the response so
+        the scenario is deterministic and safe. Insecure mode "fetches" any
+        user-supplied URL, including internal/link-local targets such as the
+        cloud metadata endpoint. Secure mode enforces an http(s) allowlist and
+        refuses targets that resolve to private, loopback, or link-local
+        addresses. Either way, a request at an internal target is logged as an
+        ``outbound_request`` event carrying the SSRF signal.
+        """
+
+        url = (
+            request.form.get("url", "") if request.method == "POST" else request.args.get("url", "")
+        ).strip()
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+        signal = _ssrf_signal(url)
+        status_code = 200
+        message = None
+        fetched_body = ""
+
+        if url and signal:
+            target_host = urlsplit(url).hostname or ""
+            if _mode() == "secure":
+                status_code = 400
+                message = "Fetch was blocked: target is not an allowed external address."
+                reason = "blocked_internal_target"
+            else:
+                message = "Insecure mode fetched a server-internal target."
+                fetched_body = _simulated_fetch(url)
+                reason = "fetched_internal_target"
+
+            _log_outbound_request_event(
+                logger,
+                request_id=request_id,
+                source_ip=source_ip,
+                target_url=url,
+                target_host=target_host,
+                status_code=status_code,
+                success=_mode() == "insecure",
+                reason=reason,
+                signal=signal,
+            )
+        elif url:
+            fetched_body = _simulated_fetch(url)
+
+        rendered = render_template_string(
+            FETCH_TEMPLATE,
+            mode=_mode(),
+            url=url,
+            message=message,
+            fetched_body=fetched_body,
+        )
+        if status_code != 200:
+            return rendered, status_code
+        return rendered
+
     @app.get("/health")
     def health() -> dict[str, str]:
         """Return a small readiness response with the configured lab mode."""
@@ -454,6 +518,72 @@ def _xss_signal(value: str) -> str | None:
     if any(marker in normalized for marker in XSS_MARKERS):
         return XSS_SIGNAL
     return None
+
+
+def _ssrf_signal(value: str) -> str | None:
+    """Return the SSRF signal when a fetch URL targets a server-internal address.
+
+    Flags non-http(s) schemes (e.g. ``file://``, ``gopher://``) and hosts that
+    resolve to loopback, private, link-local, reserved, or unspecified ranges,
+    plus well-known internal hostnames such as the cloud metadata endpoint.
+    """
+
+    if not value:
+        return None
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return None
+
+    scheme = parts.scheme.lower()
+    if scheme and scheme not in SSRF_ALLOWED_SCHEMES:
+        return SSRF_SIGNAL
+
+    host = (parts.hostname or "").lower()
+    if not host:
+        return None
+    if host in SSRF_INTERNAL_HOSTNAMES:
+        return SSRF_SIGNAL
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_unspecified
+    ):
+        return SSRF_SIGNAL
+    return None
+
+
+def _simulated_fetch(url: str) -> str:
+    """Return a canned, offline response body for the local fetch lab.
+
+    No real network request is ever made. Internal targets return a fake
+    secrets-bearing payload to make the SSRF lesson concrete; everything else
+    returns a generic stub.
+    """
+
+    host = (urlsplit(url).hostname or "").lower()
+    if host == "169.254.169.254":
+        return (
+            "# simulated cloud metadata response (local lab, not real)\n"
+            "iam/security-credentials/lab-role:\n"
+            "  AccessKeyId: AKIA-LAB-EXAMPLE\n"
+            "  SecretAccessKey: lab-fake-secret-do-not-use\n"
+            "  Token: lab-fake-session-token\n"
+        )
+    if host in {"localhost", "127.0.0.1", "0.0.0.0"} or host in SSRF_INTERNAL_HOSTNAMES:
+        return (
+            "# simulated internal service response (local lab, not real)\n"
+            "service: internal-admin-api\n"
+            "status: reachable from the application server\n"
+        )
+    return f"# simulated response body for {url} (local lab, not real)\n"
 
 
 def _common_event_fields(status_code: int, request_id: str) -> dict[str, Any]:
@@ -584,6 +714,18 @@ def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
             rule=str(signal or "SUSPICIOUS-INPUT-LOCAL"),
             detail=f"Suspicious input submitted to {event.get('request_path', 'unknown path')}.",
         )
+    if event_type == "outbound_request" and signal == SSRF_SIGNAL:
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Server-side request to internal target",
+            rule="WEB-SSRF-INTERNAL-001",
+            detail=(
+                "Server-side fetch aimed at internal target "
+                f"{event.get('target_host') or event.get('target_url', 'unknown')!r} "
+                "(server-side request forgery)."
+            ),
+        )
     if event_type == "admin_access" and signal == BROKEN_ACCESS_SIGNAL:
         return _soc_alert(
             event,
@@ -644,6 +786,35 @@ def _log_admin_access(
             "signal": signal,
             "granted": granted,
             "success": granted,
+        }
+    )
+
+
+def _log_outbound_request_event(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    target_url: str,
+    target_host: str,
+    status_code: int,
+    success: bool,
+    reason: str,
+    signal: str,
+) -> None:
+    """Write one structured server-side fetch event for SSRF detection rules."""
+
+    logger.write(
+        {
+            "event_type": "outbound_request",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": "anonymous",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "target_url": target_url,
+            "target_host": target_host,
+            "success": success,
         }
     )
 
@@ -793,6 +964,7 @@ NAV_SNIPPET = """
     <a href="/login">Brute force &middot; Login</a>
     <a href="/search">SQL injection &middot; Search</a>
     <a href="/comment">XSS &middot; Comment</a>
+    <a href="/fetch">SSRF &middot; Fetch</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
     <div class="labnav-group">Vulnerabilities</div>
@@ -975,6 +1147,11 @@ HOME_TEMPLATE = """
             <div class="rule">BAC-PRIV-ESC-001</div>
             <div class="name">Broken access control</div>
             <p class="desc">The admin panel returns 403. Escalate with a client-supplied role to reach it &mdash; insecure mode only.</p>
+          </a>
+          <a class="scenario" href="/fetch">
+            <div class="rule">WEB-SSRF-INTERNAL-001</div>
+            <div class="name">Server-side request forgery</div>
+            <p class="desc">Make the server fetch a URL. Insecure mode reaches internal targets like cloud metadata; secure mode blocks them.</p>
           </a>
         </div>
       </div>
@@ -1162,6 +1339,62 @@ COMMENT_TEMPLATE = """
 """.replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
 
 
+FETCH_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Fetch</title>
+    <style>{styles}
+      .fetch-body {
+        margin-top: 1.2rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.8rem;
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.02);
+      }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+      .hint { font-family: var(--mono); font-size: 0.78rem; color: var(--text-faint); margin: 0.8rem 0 0; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
+    <div class="card">
+      <h1>URL fetcher</h1>
+      <p class="subtitle">SSRF telemetry lab &mdash; server-side fetches at internal targets are logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. No real network request is made &mdash; responses are simulated.</div>
+      {% if message %}<div class="notice error">&#9940;&nbsp; {{ message }}</div>{% endif %}
+      <form method="post" action="/fetch">
+        <label>
+          URL to fetch
+          <input name="url" value="{{ url }}" autocomplete="off" placeholder="https://example.com/status">
+        </label>
+        <button type="submit">Fetch URL</button>
+      </form>
+      <p class="hint">try: <strong>http://169.254.169.254/latest/meta-data/</strong> &middot;
+        <strong>http://localhost/admin</strong> &middot; <strong>file:///etc/passwd</strong></p>
+      {% if fetched_body %}
+        <h2>Response</h2>
+        <div class="fetch-body">{{ fetched_body }}</div>
+      {% endif %}
+    </div>
+    <div class="footer">WEB-SSRF-INTERNAL-001 &middot; logs/application.jsonl</div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
 ADMIN_TEMPLATE = """
 <!doctype html>
 <html lang="en">
@@ -1320,7 +1553,8 @@ SOC_LIVE_TEMPLATE = """
       {% else %}
         <div class="empty">No live alerts yet. Run an attack scenario in insecure mode:
           <a href="/login">login</a> &middot; <a href="/search">search</a> &middot;
-          <a href="/comment">comment</a> &middot; <a href="/dashboard">admin</a>.</div>
+          <a href="/comment">comment</a> &middot; <a href="/dashboard">admin</a> &middot;
+          <a href="/fetch">fetch</a>.</div>
       {% endif %}
       <p class="footer">For the full findings dashboard, generate the HTML report at {{ report_file }} with
         <code>python -m detection_engine --html</code>.</p>

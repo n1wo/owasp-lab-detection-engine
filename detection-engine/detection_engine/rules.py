@@ -12,6 +12,7 @@ BRUTE_FORCE_RULE_ID = "AUTH-BRUTE-FORCE-001"
 SQLI_RULE_ID = "WEB-SQLI-PATTERN-001"
 XSS_RULE_ID = "WEB-XSS-PATTERN-001"
 BROKEN_ACCESS_RULE_ID = "BAC-PRIV-ESC-001"
+SSRF_RULE_ID = "WEB-SSRF-INTERNAL-001"
 SEVERITY = "Medium"
 SEVERITY_HIGH = "High"
 FAILURE_THRESHOLD = 5
@@ -19,6 +20,7 @@ WINDOW = timedelta(minutes=5)
 SQLI_SIGNAL = "sql_injection_like_pattern"
 XSS_SIGNAL = "xss_like_pattern"
 BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
+SSRF_SIGNAL = "ssrf_internal_target_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -29,6 +31,7 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
         *detect_sqli_patterns(events),
         *detect_xss_patterns(events),
         *detect_broken_access_control(events),
+        *detect_ssrf_patterns(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -134,6 +137,44 @@ def _detect_suspicious_input_signal(
                 reason=(
                     f"{label} input signal {signal!r} observed "
                     f"for field {input_name!r} on {request_path}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_ssrf_patterns(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect server-side fetches aimed at internal targets (SSRF).
+
+    The vulnerable app logs an ``outbound_request`` event carrying the
+    ``ssrf_internal_target_pattern`` signal whenever a server-side fetch is
+    pointed at a loopback, private, link-local, or otherwise internal target
+    (or uses a non-http(s) scheme). Each such event is an SSRF finding,
+    regardless of whether the attempt was served or blocked.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "outbound_request":
+            continue
+        if event.raw.get("signal") != SSRF_SIGNAL:
+            continue
+
+        request_path = str(event.raw.get("request_path") or "unknown")
+        target = str(event.raw.get("target_host") or event.raw.get("target_url") or "unknown")
+        findings.append(
+            DetectionFinding(
+                rule_id=SSRF_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Server-side request forgery: fetch on {request_path} aimed at "
+                    f"internal target {target!r} from {event.source_ip}"
                 ),
             )
         )

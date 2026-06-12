@@ -17,6 +17,7 @@ from detection_engine.rules import (  # noqa: E402
     detect_broken_access_control,
     detect_brute_force,
     detect_sqli_patterns,
+    detect_ssrf_patterns,
     detect_xss_patterns,
 )
 
@@ -110,6 +111,29 @@ def admin_access_event(source_ip="127.0.0.1", username="guest", signal="broken_a
             "request_path": "/dashboard",
             "granted": True,
             "reason": "broken_access_control_role_param",
+        },
+    )
+
+
+def outbound_request_event(
+    source_ip="127.0.0.1",
+    signal="ssrf_internal_target_pattern",
+    target_host="169.254.169.254",
+    minute=0,
+):
+    """Build an outbound_request LogEvent for SSRF detection tests."""
+
+    timestamp = datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+    return LogEvent(
+        timestamp=timestamp,
+        event_type="outbound_request",
+        source_ip=source_ip,
+        username="anonymous",
+        raw={
+            "signal": signal,
+            "request_path": "/fetch",
+            "target_host": target_host,
+            "target_url": f"http://{target_host}/latest/meta-data/",
         },
     )
 
@@ -334,6 +358,34 @@ def test_broken_access_control_rule_ignores_legitimate_admin_access():
     assert detect_broken_access_control([legit]) == []
 
 
+def test_ssrf_rule_triggers_on_internal_target_signal():
+    """Verify an outbound_request to an internal target creates a finding."""
+
+    events = [outbound_request_event()]
+
+    findings = detect_ssrf_patterns(events)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.rule_id == "WEB-SSRF-INTERNAL-001"
+    assert finding.severity == "High"
+    assert finding.source_ip == "127.0.0.1"
+    assert finding.username == "anonymous"
+    assert finding.event_count == 1
+    assert finding.first_seen == events[0].timestamp
+    assert finding.last_seen == events[0].timestamp
+    assert "169.254.169.254" in finding.reason
+    assert "/fetch" in finding.reason
+
+
+def test_ssrf_rule_ignores_outbound_request_without_signal():
+    """Verify a benign outbound_request (no SSRF signal) does not trigger."""
+
+    benign = outbound_request_event(signal=None)
+
+    assert detect_ssrf_patterns([benign]) == []
+
+
 def test_detect_all_returns_every_rule_type():
     """Verify the combined rule runner emits all implemented rule types."""
 
@@ -341,6 +393,7 @@ def test_detect_all_returns_every_rule_type():
     events.append(suspicious_input_event(minute=6))
     events.append(xss_input_event(minute=7))
     events.append(admin_access_event(minute=8))
+    events.append(outbound_request_event(minute=9))
 
     findings = detect_all(events)
 
@@ -349,4 +402,5 @@ def test_detect_all_returns_every_rule_type():
         "WEB-SQLI-PATTERN-001",
         "WEB-XSS-PATTERN-001",
         "BAC-PRIV-ESC-001",
+        "WEB-SSRF-INTERNAL-001",
     ]
