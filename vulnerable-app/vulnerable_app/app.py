@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from flask import Flask, Response, current_app, redirect, render_template_string, request, send_file, url_for
+from flask import Flask, Response, current_app, redirect, render_template_string, request, send_file, session, url_for
 
 
 VALID_USERS = {
@@ -21,6 +21,7 @@ VALID_USERS = {
     "admin": "admin-password",
 }
 
+ADMIN_USERS = {"admin"}
 ALLOWED_MODES = {"insecure", "secure"}
 LOCKOUT_FAILURE_LIMIT = 5
 LOCKOUT_WINDOW_SECONDS = 300
@@ -28,6 +29,7 @@ SQLI_SIGNAL = "sql_injection_like_pattern"
 SQLI_MARKERS = ("' or '", '" or "', "--", "/*", "*/", " union ", " select ")
 XSS_SIGNAL = "xss_like_pattern"
 XSS_MARKERS = ("<script", "javascript:", "onerror=", "onload=", "<img", "<svg")
+BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         is_valid = _valid_credentials(username, password, _mode())
         if is_valid:
             failure_tracker.pop((source_ip, username), None)
+            # Server-side identity established by a real, validated login. Only
+            # the admin account legitimately receives the admin role.
+            session["username"] = username
+            session["role"] = "admin" if username in ADMIN_USERS else "user"
             _log_login_event(
                 logger,
                 event_type="login_success",
@@ -154,11 +160,58 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         return render_template_string(LOGIN_TEMPLATE, mode=_mode(), message=message), 401
 
     @app.get("/dashboard")
-    def dashboard() -> str:
-        """Render a simple local dashboard after a successful lab login."""
+    def dashboard() -> Response | str:
+        """Admin panel guarded by an intentionally broken access control check.
 
-        username = request.args.get("username", "test-user")
-        return render_template_string(DASHBOARD_TEMPLATE, username=username, mode=_mode())
+        Secure mode authorizes only the server-signed session role established
+        at login. Insecure mode additionally trusts a client-supplied ``role``
+        query parameter, so ``/dashboard?role=admin`` escalates privileges
+        without ever authenticating as the admin account.
+        """
+
+        username = request.args.get("username") or session.get("username") or "guest"
+        session_role = session.get("role", "anonymous")
+        claimed_role = request.args.get("role", "")
+        request_id = str(uuid.uuid4())
+
+        session_is_admin = session_role == "admin"
+        param_is_admin = _mode() == "insecure" and claimed_role == "admin"
+        is_admin = session_is_admin or param_is_admin
+
+        if not is_admin:
+            _log_admin_access(
+                logger,
+                request_id=request_id,
+                source_ip=_source_ip(),
+                username=username,
+                status_code=403,
+                granted=False,
+                reason="missing_admin_role",
+                signal=None,
+            )
+            return render_template_string(ACCESS_DENIED_TEMPLATE, mode=_mode(), role=session_role), 403
+
+        exploited = param_is_admin and not session_is_admin
+        _log_admin_access(
+            logger,
+            request_id=request_id,
+            source_ip=_source_ip(),
+            username=username,
+            status_code=200,
+            granted=True,
+            reason="broken_access_control_role_param" if exploited else "authorized_admin_session",
+            signal=BROKEN_ACCESS_SIGNAL if exploited else None,
+        )
+        return render_template_string(
+            ADMIN_TEMPLATE, username=username, mode=_mode(), exploited=exploited
+        )
+
+    @app.get("/logout")
+    def logout() -> Response:
+        """Clear the lab session and return to the login page."""
+
+        session.clear()
+        return redirect(url_for("index"))
 
     @app.post("/lab/mode")
     def toggle_mode() -> Response:
@@ -551,6 +604,33 @@ def _soc_alert(
     }
 
 
+def _log_admin_access(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    username: str,
+    status_code: int,
+    granted: bool,
+    reason: str,
+    signal: str | None,
+) -> None:
+    """Write one structured admin-panel access event for local detection rules."""
+
+    logger.write(
+        {
+            "event_type": "admin_access",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": username or "anonymous",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "granted": granted,
+            "success": granted,
+        }
+    )
+
+
 BASE_STYLES = """
       :root {
         --bg: #0b1120;
@@ -693,7 +773,6 @@ NAV_SNIPPET = """
     <a href="/">Brute force &middot; Login</a>
     <a href="/search">SQL injection &middot; Search</a>
     <a href="/comment">XSS &middot; Comment</a>
-    <a href="/dashboard">Admin panel</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
     <div class="labnav-group">Vulnerabilities</div>
@@ -957,7 +1036,7 @@ COMMENT_TEMPLATE = """
 """.replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
 
 
-DASHBOARD_TEMPLATE = """
+ADMIN_TEMPLATE = """
 <!doctype html>
 <html lang="en">
   <head>
@@ -970,18 +1049,54 @@ DASHBOARD_TEMPLATE = """
     <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
     <div class="card">
       <h1>Admin panel</h1>
-      <p class="subtitle">Signed in as {{ username }} in {{ mode }} mode.</p>
+      <p class="subtitle">Restricted area &mdash; administrators only.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
         <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+        <span class="badge mode-insecure">role: admin</span>
       </div>
-      <p class="meta">session: <strong>{{ username }}</strong></p>
-      <div class="notice warning">&#9888;&#65039;&nbsp; This page is part of the local-only educational lab.</div>
-      <form method="get" action="/">
+      <p class="meta">viewing as: <strong>{{ username }}</strong></p>
+      {% if exploited %}
+      <div class="notice error">&#9940;&nbsp; Reached via broken access control: a client-supplied <code>role=admin</code> parameter was trusted. This event is logged as <strong>BAC-PRIV-ESC-001</strong>.</div>
+      {% else %}
+      <div class="notice warning">&#9888;&#65039;&nbsp; Authorized through a valid admin session. This page is part of the local-only educational lab.</div>
+      {% endif %}
+      <form method="get" action="/logout">
         <button type="submit">Sign out</button>
       </form>
     </div>
-    <div class="footer">AUTH-BRUTE-FORCE-001 &middot; logs/application.jsonl</div>
+    <div class="footer">BAC-PRIV-ESC-001 &middot; logs/application.jsonl</div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
+ACCESS_DENIED_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Access Denied</title>
+    <style>{styles}</style>
+  </head>
+  <body>
+    <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
+    <div class="card">
+      <h1>403 &middot; Access denied</h1>
+      <p class="subtitle">The admin panel requires administrator privileges.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+        <span class="badge">role: {{ role }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Sign in as an administrator to continue. There is no link to this page by design &mdash; reaching it otherwise is the scenario's objective.</div>
+      <form method="get" action="/">
+        <button type="submit">Back to login</button>
+      </form>
+    </div>
+    <div class="footer">BAC-PRIV-ESC-001 &middot; logs/application.jsonl</div>
     {nav}
   </body>
 </html>
