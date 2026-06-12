@@ -16,6 +16,7 @@ publicly.
 - Flask-based login page
 - Flask-based search page
 - Flask-based comment page
+- live SOC alerts page at `/soc`
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
 - consistent JSONL telemetry written to `logs/application.jsonl`
@@ -60,6 +61,17 @@ XSS-like comment events use `event_type=suspicious_input` and include:
 | `input_name` | Submitted input field, currently `comment` |
 | `input_value` | Fictional local lab input value |
 | `reason` | `rendered_suspicious_input` or `rejected_suspicious_input` |
+
+## Live SOC Alerts
+
+The `/soc` route reads the local JSONL log directly when no generated
+`findings.html` report exists. It surfaces recent lab alerts such as:
+
+- unknown username login attempts
+- failed login attempts
+- account lockouts
+- SQLi-like suspicious input
+- XSS-like suspicious input
 
 ## Local Commands
 

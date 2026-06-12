@@ -91,14 +91,27 @@ def test_mode_toggle_rejects_unsafe_redirect_targets(tmp_path):
         assert "evil.example" not in response.headers["Location"]
 
 
-def test_soc_route_shows_hint_when_report_missing(tmp_path):
+def test_soc_route_shows_live_empty_state_when_report_missing(tmp_path):
     client = make_app(tmp_path).test_client()
 
     response = client.get("/soc")
 
-    assert response.status_code == 404
-    assert b"No SOC report yet" in response.data
-    assert b"--html" in response.data
+    assert response.status_code == 200
+    assert b"Live SOC Alerts" in response.data
+    assert b"No live alerts yet" in response.data
+
+
+def test_soc_route_shows_unknown_username_alert(tmp_path):
+    client = make_app(tmp_path).test_client()
+
+    client.post("/login", data={"username": "ghost-user", "password": "wrong"})
+    response = client.get("/soc")
+
+    assert response.status_code == 200
+    assert b"Unknown username login attempt" in response.data
+    assert b"AUTH-UNKNOWN-USER-LOCAL" in response.data
+    assert b"ghost-user" in response.data
+    assert b"unknown_user" in response.data
 
 
 def test_soc_route_serves_generated_report(tmp_path):

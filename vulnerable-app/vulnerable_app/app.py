@@ -186,14 +186,18 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.get("/soc")
     def soc() -> Response | str:
-        """Serve the latest generated SOC findings report, or a how-to hint."""
+        """Serve the latest generated report, or live SOC alerts from telemetry."""
 
         report_file = settings.log_file.resolve().parent / "findings.html"
         if report_file.is_file():
             return send_file(report_file, mimetype="text/html")
-        return (
-            render_template_string(SOC_HINT_TEMPLATE, mode=_mode(), report_file=str(report_file)),
-            404,
+        alerts = _soc_alerts_from_log(settings.log_file)
+        return render_template_string(
+            SOC_LIVE_TEMPLATE,
+            mode=_mode(),
+            log_file=str(settings.log_file),
+            report_file=str(report_file),
+            alerts=alerts,
         )
 
     @app.get("/search")
@@ -459,6 +463,92 @@ def _log_suspicious_input_event(
             "success": success,
         }
     )
+
+
+def _soc_alerts_from_log(log_file: Path, limit: int = 25) -> list[dict[str, Any]]:
+    """Build SOC console alerts directly from local app telemetry."""
+
+    if not log_file.is_file():
+        return []
+
+    alerts: list[dict[str, Any]] = []
+    for line in log_file.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        alert = _soc_alert_from_event(event)
+        if alert is not None:
+            alerts.append(alert)
+
+    return list(reversed(alerts[-limit:]))
+
+
+def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a display alert for one noteworthy local telemetry event."""
+
+    event_type = event.get("event_type")
+    reason = event.get("reason")
+    signal = event.get("signal")
+
+    if event_type == "login_failure" and reason == "unknown_user":
+        return _soc_alert(
+            event,
+            severity="Medium",
+            title="Unknown username login attempt",
+            rule="AUTH-UNKNOWN-USER-LOCAL",
+            detail=f"Login attempted for unknown lab username {event.get('username', 'anonymous')!r}.",
+        )
+    if event_type == "login_failure":
+        return _soc_alert(
+            event,
+            severity="Low",
+            title="Failed login attempt",
+            rule="AUTH-LOGIN-FAILURE-LOCAL",
+            detail=f"Login failed for lab username {event.get('username', 'anonymous')!r}.",
+        )
+    if event_type == "account_lockout":
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Account lockout triggered",
+            rule="AUTH-LOCKOUT-LOCAL",
+            detail=f"Too many failed attempts for lab username {event.get('username', 'anonymous')!r}.",
+        )
+    if event_type == "suspicious_input":
+        label = "SQLi-like" if signal == SQLI_SIGNAL else "XSS-like" if signal == XSS_SIGNAL else "Suspicious"
+        return _soc_alert(
+            event,
+            severity="Medium",
+            title=f"{label} input observed",
+            rule=str(signal or "SUSPICIOUS-INPUT-LOCAL"),
+            detail=f"Suspicious input submitted to {event.get('request_path', 'unknown path')}.",
+        )
+    return None
+
+
+def _soc_alert(
+    event: dict[str, Any],
+    *,
+    severity: str,
+    title: str,
+    rule: str,
+    detail: str,
+) -> dict[str, Any]:
+    """Normalize one SOC alert for template rendering."""
+
+    return {
+        "severity": severity,
+        "title": title,
+        "rule": rule,
+        "detail": detail,
+        "timestamp": event.get("timestamp", "unknown"),
+        "source_ip": event.get("source_ip", "unknown"),
+        "username": event.get("username", "anonymous"),
+        "path": event.get("request_path", "unknown"),
+        "reason": event.get("reason", "unknown"),
+    }
 
 
 BASE_STYLES = """
@@ -898,7 +988,7 @@ DASHBOARD_TEMPLATE = """
 """.replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
 
 
-SOC_HINT_TEMPLATE = """
+SOC_LIVE_TEMPLATE = """
 <!doctype html>
 <html lang="en">
   <head>
@@ -906,30 +996,91 @@ SOC_HINT_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OWASP Lab &middot; SOC</title>
     <style>{styles}
-      code {
-        display: block; font-family: var(--mono); font-size: 0.78rem;
-        color: var(--accent); background: var(--bg);
-        border: 1px solid var(--border-strong); border-radius: 8px;
-        padding: 0.7rem 0.85rem; margin-top: 0.4rem;
-        overflow-x: auto; white-space: pre;
+      body { justify-content: flex-start; }
+      .soc-card { max-width: 54rem; }
+      .soc-grid { display: grid; gap: 0.8rem; margin-top: 1.2rem; }
+      .alert {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.9rem 1rem;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .alert-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: flex-start;
+        margin-bottom: 0.5rem;
+      }
+      .alert-title { margin: 0; font-size: 0.95rem; font-weight: 600; }
+      .alert-detail { margin: 0 0 0.65rem; color: var(--text-muted); font-size: 0.86rem; line-height: 1.45; }
+      .alert-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--text-faint);
+      }
+      .chip {
+        display: inline-block;
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 0.25rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid var(--border-strong);
+        color: var(--text-muted);
+      }
+      .chip.sev-high { color: var(--danger-text); border-color: var(--danger-border); background: var(--danger-bg); }
+      .chip.sev-medium { color: var(--warn-text); border-color: var(--warn-border); background: var(--warn-bg); }
+      .chip.sev-low { color: #93c5fd; border-color: rgba(96, 165, 250, 0.35); background: rgba(96, 165, 250, 0.08); }
+      .empty {
+        border: 1px dashed var(--border-strong);
+        border-radius: 10px;
+        padding: 1rem;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.02);
       }
     </style>
   </head>
   <body>
     <div class="brand"><span class="dot"></span> OWASP Lab Detection Engine</div>
-    <div class="card">
-      <h1>No SOC report yet</h1>
-      <p class="subtitle">The findings dashboard is generated by the detection engine CLI.</p>
+    <div class="card soc-card">
+      <h1>Live SOC Alerts</h1>
+      <p class="subtitle">Alerts are generated directly from local JSONL telemetry.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
         <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+        <span class="badge">{{ alerts|length }} alerts</span>
       </div>
-      <div class="notice warning">&#9888;&#65039;&nbsp; Expected report at: {{ report_file }}</div>
-      <p class="meta">Generate it, then reload this page:</p>
-      <code>cd detection-engine
-python -m detection_engine --log-file ../logs/application.jsonl --html ../logs/findings.html</code>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Live view reads: {{ log_file }}</div>
+      {% if alerts %}
+        <div class="soc-grid">
+          {% for alert in alerts %}
+            <article class="alert">
+              <div class="alert-head">
+                <h2 class="alert-title">{{ alert.title }}</h2>
+                <span class="chip sev-{{ alert.severity|lower }}">{{ alert.severity }}</span>
+              </div>
+              <p class="alert-detail">{{ alert.detail }}</p>
+              <div class="alert-meta">
+                <span>{{ alert.rule }}</span>
+                <span>{{ alert.timestamp }}</span>
+                <span>source={{ alert.source_ip }}</span>
+                <span>user={{ alert.username }}</span>
+                <span>path={{ alert.path }}</span>
+                <span>reason={{ alert.reason }}</span>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">No live alerts yet. Try a failed login, suspicious search, or XSS-style comment in the local lab.</div>
+      {% endif %}
+      <p class="footer">Generated HTML report path: {{ report_file }}</p>
     </div>
-    <div class="footer">detection-engine &middot; --html</div>
     {nav}
   </body>
 </html>

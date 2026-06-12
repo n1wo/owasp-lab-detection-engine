@@ -49,6 +49,7 @@ This project demonstrates:
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] Detection rule `WEB-XSS-PATTERN-001`
 - [x] CLI with human-readable and JSON output
+- [x] Live SOC alerts at `/soc` from local app telemetry
 - [x] Self-contained HTML findings dashboard via `--html`
 - [x] Reproducible localhost-only demo scripts
 - [x] pytest coverage
@@ -508,6 +509,22 @@ Each event includes fields such as `timestamp`, `event_type`,
 
 SQLi-like search and XSS-like comment telemetry also include `signal`,
 `input_name`, and `input_value`.
+
+## View Live SOC Alerts
+
+Open the local app's SOC console at:
+
+```text
+http://127.0.0.1:8080/soc
+```
+
+The SOC console reads `logs/application.jsonl` directly and shows recent local
+alerts such as unknown username login attempts, failed logins, lockouts, and
+suspicious input. For example, submitting a login with an unknown username in
+insecure mode creates a live `AUTH-UNKNOWN-USER-LOCAL` alert.
+
+The detection engine can still generate a standalone HTML report with `--html`
+when you want an offline artifact.
 
 ## Run The Detection Engine
 
