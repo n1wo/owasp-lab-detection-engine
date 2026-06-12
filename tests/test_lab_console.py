@@ -42,6 +42,34 @@ def test_brand_links_back_to_home_on_lab_pages(tmp_path):
         assert b'<a class="brand" href="/">' in response.data
 
 
+def test_help_popup_present_on_each_scenario_page(tmp_path):
+    # Every scenario page exposes a "?" button that opens a modal explaining
+    # the vulnerability, tagged with its detection rule id.
+    client = make_app(tmp_path).test_client()
+    expected = {
+        "/login": b"AUTH-BRUTE-FORCE-001",
+        "/search": b"WEB-SQLI-PATTERN-001",
+        "/comment": b"WEB-XSS-PATTERN-001",
+        "/dashboard": b"BAC-PRIV-ESC-001",  # access-denied gate
+        "/dashboard?role=admin": b"BAC-PRIV-ESC-001",  # admin panel
+        "/fetch": b"WEB-SSRF-INTERNAL-001",
+    }
+    for path, rule_id in expected.items():
+        response = client.get(path)
+        assert b'class="help-btn"' in response.data, path
+        assert b'class="help-modal"' in response.data, path
+        assert b"onclick=\"openHelp()\"" in response.data, path
+        assert rule_id in response.data, path
+
+
+def test_help_popup_absent_from_home_and_soc(tmp_path):
+    # The help "?" affordance is scoped to scenario pages, not the overview.
+    client = make_app(tmp_path).test_client()
+
+    for path in ("/", "/soc"):
+        assert b'class="help-btn"' not in client.get(path).data, path
+
+
 def _nav_block(html):
     """Return just the lab console <nav> markup from a page."""
 

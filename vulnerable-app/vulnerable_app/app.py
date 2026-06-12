@@ -952,6 +952,61 @@ BASE_STYLES = """
       }
       .meta { font-family: var(--mono); font-size: 0.8rem; color: var(--text-muted); }
       .meta strong { color: var(--accent); font-weight: 600; }
+      .title-row { display: flex; align-items: baseline; gap: 0.55rem; }
+      .title-row h1 { margin-bottom: 0.35rem; }
+      .help-btn {
+        width: 1.5rem; height: 1.5rem; flex: none; margin: 0; padding: 0;
+        border-radius: 50%; border: 1px solid var(--accent-strong);
+        background: rgba(34, 211, 238, 0.08); color: var(--accent);
+        font-size: 0.85rem; font-weight: 700; line-height: 1; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center;
+        transition: filter 0.15s, transform 0.05s;
+      }
+      .help-btn:hover { filter: brightness(1.25); }
+      .help-btn:active { transform: translateY(1px); }
+      .help-overlay {
+        position: fixed; inset: 0; z-index: 2000; display: none;
+        align-items: center; justify-content: center; padding: 1.5rem;
+        background: rgba(3, 7, 18, 0.72); backdrop-filter: blur(2px);
+      }
+      .help-overlay.open { display: flex; }
+      .help-modal {
+        position: relative; width: 100%; max-width: 34rem; max-height: 85vh;
+        overflow-y: auto; text-align: left;
+        background: linear-gradient(180deg, var(--surface-2), var(--surface));
+        border: 1px solid var(--border-strong); border-radius: 14px;
+        padding: 1.6rem 1.7rem; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+      }
+      .help-close {
+        position: absolute; top: 0.6rem; right: 0.75rem; width: auto; margin: 0;
+        padding: 0.1rem 0.5rem; background: none; border: none;
+        color: var(--text-muted); font-size: 1.4rem; line-height: 1; cursor: pointer;
+      }
+      .help-close:hover { color: var(--text); filter: none; }
+      .help-rule {
+        font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em;
+        text-transform: uppercase; color: var(--accent);
+      }
+      .help-modal h3 { margin: 0.35rem 0 1rem; font-size: 1.2rem; font-weight: 600; color: var(--text); }
+      .help-modal h4 {
+        margin: 1.1rem 0 0.35rem; font-size: 0.7rem; font-weight: 600;
+        letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint);
+      }
+      .help-modal p { margin: 0 0 0.6rem; font-size: 0.88rem; line-height: 1.55; color: var(--text-muted); }
+      .help-modal code {
+        font-family: var(--mono); font-size: 0.82rem; color: var(--accent);
+        background: rgba(34, 211, 238, 0.08); padding: 0.05rem 0.3rem; border-radius: 5px;
+        overflow-wrap: anywhere;
+      }
+      .help-modal strong { color: var(--text); }
+      .help-vs { display: grid; gap: 0.55rem; margin: 0.3rem 0 0.2rem; }
+      .help-vs div {
+        border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem;
+        font-size: 0.85rem; line-height: 1.5; color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .help-vs .ins { border-color: var(--warn-border); }
+      .help-vs .sec { border-color: rgba(52, 211, 153, 0.35); }
 """
 
 
@@ -1192,7 +1247,32 @@ LOGIN_TEMPLATE = """
   <body>
     <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
-      <h1>Sign in</h1>
+      <div class="title-row">
+        <h1>Sign in</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A07 &middot; AUTH-BRUTE-FORCE-001 &middot; Medium</div>
+          <h3>Brute force &amp; authentication failures</h3>
+          <p>An attacker tries many username and password guesses to take over an account. This login also leaks whether a username exists, so an attacker can first confirm valid accounts and then concentrate their guessing on them.</p>
+          <h4>Try it</h4>
+          <p>Submit a few wrong passwords in a row. Then compare the message for a real user (<code>test-user</code>) against an unknown one &mdash; in insecure mode they differ.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> distinct errors (&ldquo;Unknown user&rdquo; vs &ldquo;Incorrect password&rdquo;) confirm valid usernames, and attempts are unlimited.</div>
+            <div class="sec"><strong>Secure:</strong> one generic &ldquo;Invalid username or password&rdquo; for every failure, plus a lockout after 5 failures from the same source within 5 minutes.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>Each failure is logged as a <code>login_failure</code> event. Five or more for the same source IP and username within five minutes raises <strong>AUTH-BRUTE-FORCE-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
       <p class="subtitle">Authentication telemetry lab &mdash; login events are logged as JSONL.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
@@ -1245,7 +1325,32 @@ SEARCH_TEMPLATE = """
   <body>
     <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
-      <h1>Search</h1>
+      <div class="title-row">
+        <h1>Search</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A03 &middot; WEB-SQLI-PATTERN-001 &middot; Medium</div>
+          <h3>SQL injection</h3>
+          <p>When user input is concatenated straight into a database query, an attacker can change the query's meaning &mdash; reading records they shouldn't, bypassing filters, or dumping whole tables.</p>
+          <h4>Try it</h4>
+          <p>Search for <code>' OR '1'='1</code> or <code>' UNION SELECT username, password FROM users --</code>.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the crafted input is accepted and &ldquo;runs&rdquo; &mdash; the lab returns extra demo records to model data being leaked.</div>
+            <div class="sec"><strong>Secure:</strong> the same input is rejected with HTTP 400 before it can reach a query.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>A <code>suspicious_input</code> event with signal <code>sql_injection_like_pattern</code> raises <strong>WEB-SQLI-PATTERN-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
       <p class="subtitle">SQLi telemetry lab &mdash; suspicious input is logged as JSONL.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
@@ -1310,7 +1415,32 @@ COMMENT_TEMPLATE = """
   <body>
     <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
-      <h1>Comment</h1>
+      <div class="title-row">
+        <h1>Comment</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A03 &middot; WEB-XSS-PATTERN-001 &middot; Medium</div>
+          <h3>Cross-site scripting (XSS)</h3>
+          <p>XSS injects attacker-controlled HTML or JavaScript that then runs in other users' browsers &mdash; stealing sessions or keystrokes, or acting as the victim.</p>
+          <h4>Try it</h4>
+          <p>Post <code>&lt;script&gt;alert(1)&lt;/script&gt;</code> or <code>&lt;img src=x onerror=alert(1)&gt;</code>.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the comment is rendered as raw HTML, so the script actually executes in the preview.</div>
+            <div class="sec"><strong>Secure:</strong> the input is rejected and escaped, shown as harmless text.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>A <code>suspicious_input</code> event with signal <code>xss_like_pattern</code> raises <strong>WEB-XSS-PATTERN-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
       <p class="subtitle">XSS telemetry lab &mdash; suspicious comment input is logged as JSONL.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
@@ -1366,7 +1496,32 @@ FETCH_TEMPLATE = """
   <body>
     <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
-      <h1>URL fetcher</h1>
+      <div class="title-row">
+        <h1>URL fetcher</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A10 &middot; WEB-SSRF-INTERNAL-001 &middot; High</div>
+          <h3>Server-side request forgery (SSRF)</h3>
+          <p>SSRF makes the server itself fetch a URL you supply. That lets an attacker reach things the server can reach but they can't &mdash; internal services, admin endpoints, or the cloud metadata API that hands out credentials.</p>
+          <h4>Try it</h4>
+          <p>Fetch <code>http://169.254.169.254/latest/meta-data/</code>, <code>http://localhost/admin</code>, or <code>file:///etc/passwd</code>. Responses here are simulated &mdash; no real network call is made.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the server fetches any URL, including loopback, private, and link-local targets; the metadata endpoint returns (fake) credentials.</div>
+            <div class="sec"><strong>Secure:</strong> only http(s) is allowed and targets that resolve to internal ranges are blocked with HTTP 400.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>An <code>outbound_request</code> event with signal <code>ssrf_internal_target_pattern</code> raises <strong>WEB-SSRF-INTERNAL-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
       <p class="subtitle">SSRF telemetry lab &mdash; server-side fetches at internal targets are logged as JSONL.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
@@ -1407,7 +1562,32 @@ ADMIN_TEMPLATE = """
   <body>
     <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
-      <h1>Admin panel</h1>
+      <div class="title-row">
+        <h1>Admin panel</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A01 &middot; BAC-PRIV-ESC-001 &middot; High</div>
+          <h3>Broken access control</h3>
+          <p>Broken access control means the server decides what you're allowed to do based on data you control. Here the admin panel can be unlocked by a value in the URL instead of a real, server-verified session.</p>
+          <h4>Try it</h4>
+          <p>Without logging in as an admin, visit <code>/dashboard?role=admin</code>.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the app trusts the client-supplied <code>role=admin</code> parameter and grants the admin panel.</div>
+            <div class="sec"><strong>Secure:</strong> only a server-signed admin session is honored; the parameter is ignored and the request stays 403.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>An <code>admin_access</code> event with signal <code>broken_access_control_pattern</code> raises <strong>BAC-PRIV-ESC-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
       <p class="subtitle">Restricted area &mdash; administrators only.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
@@ -1443,7 +1623,32 @@ ACCESS_DENIED_TEMPLATE = """
   <body>
     <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
     <div class="card">
-      <h1>403 &middot; Access denied</h1>
+      <div class="title-row">
+        <h1>403 &middot; Access denied</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A01 &middot; BAC-PRIV-ESC-001 &middot; High</div>
+          <h3>Broken access control</h3>
+          <p>Broken access control means the server decides what you're allowed to do based on data you control. This admin panel can be unlocked by a value in the URL instead of a real, server-verified session &mdash; that's the objective here.</p>
+          <h4>Try it</h4>
+          <p>Without logging in as an admin, visit <code>/dashboard?role=admin</code>.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the app trusts the client-supplied <code>role=admin</code> parameter and grants the admin panel.</div>
+            <div class="sec"><strong>Secure:</strong> only a server-signed admin session is honored; the parameter is ignored and the request stays 403.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>An <code>admin_access</code> event with signal <code>broken_access_control_pattern</code> raises <strong>BAC-PRIV-ESC-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
       <p class="subtitle">The admin panel requires administrator privileges.</p>
       <div class="badges">
         <span class="badge">local-lab</span>
