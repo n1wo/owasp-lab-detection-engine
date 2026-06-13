@@ -33,6 +33,7 @@ The current implemented scenarios are:
 - broken access control on the admin panel in insecure mode
 - server-side request forgery against internal targets in insecure mode
 - security misconfiguration via an exposed debug endpoint in insecure mode
+- cryptographic failure via weak password hashing at registration in insecure mode
 
 Each scenario should eventually include:
 
@@ -157,6 +158,26 @@ In `LAB_MODE=secure`, the same route is disabled:
 This scenario models how a debug or diagnostics endpoint left enabled in
 production leaks secrets that enable session forgery and credential abuse. All
 values are fictional and local to this lab.
+
+## Current Cryptographic Failures Scenario
+
+In `LAB_MODE=insecure`, the local `/register` route stores account passwords
+with a weak algorithm:
+
+- the password is hashed with unsalted MD5, which is fast to brute-force and
+  reversible via rainbow tables
+- a `credential_storage` event is logged with
+  `signal=weak_password_hash_pattern` and `reason=weak_password_hash`
+
+In `LAB_MODE=secure`, the same route stores passwords safely:
+
+- a per-user random salt feeds PBKDF2-HMAC-SHA256, so identical passwords yield
+  different stored values and brute-forcing is expensive
+- the event is logged with `reason=strong_password_hash` and no signal, so a
+  properly hashed password is not flagged
+
+No account is persisted; this scenario only demonstrates how the password would
+be stored. All values are fictional and local to this lab.
 
 ## Assumptions
 

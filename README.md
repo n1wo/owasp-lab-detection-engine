@@ -13,13 +13,14 @@ combines a deliberately vulnerable Flask web app, structured JSONL security
 telemetry, a Python detection engine, and reproducible localhost demo
 workflows.
 
-The project currently covers six OWASP-oriented scenarios: it detects
+The project currently covers seven OWASP-oriented scenarios: it detects
 repeated failed login attempts with `AUTH-BRUTE-FORCE-001`, SQL-injection-like
 input with `WEB-SQLI-PATTERN-001`, XSS-like input with `WEB-XSS-PATTERN-001`,
 admin-panel privilege escalation with `BAC-PRIV-ESC-001`, server-side
-request forgery against internal targets with `WEB-SSRF-INTERNAL-001`, and
+request forgery against internal targets with `WEB-SSRF-INTERNAL-001`,
 sensitive configuration disclosed by an exposed debug endpoint with
-`CONFIG-EXPOSURE-001`.
+`CONFIG-EXPOSURE-001`, and weak password hashing at registration with
+`CRYPTO-WEAK-001`.
 
 > **Safety warning:** This project contains intentionally vulnerable examples
 > for local educational use only. Do not deploy it to the public internet and
@@ -51,12 +52,14 @@ This project demonstrates:
 - [x] Admin panel with intentionally broken access control (`/dashboard`)
 - [x] Server-side fetch page for SSRF-style local learning (`/fetch`)
 - [x] Debug endpoint that leaks config in insecure mode (`/debug`)
+- [x] Registration page with weak vs salted password hashing (`/register`)
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] Detection rule `WEB-XSS-PATTERN-001`
 - [x] Detection rule `BAC-PRIV-ESC-001`
 - [x] Detection rule `WEB-SSRF-INTERNAL-001`
 - [x] Detection rule `CONFIG-EXPOSURE-001`
+- [x] Detection rule `CRYPTO-WEAK-001`
 - [x] CLI with human-readable and JSON output
 - [x] Live SOC alerts at `/soc` from local app telemetry
 - [x] Self-contained HTML findings dashboard via `--html`
@@ -170,7 +173,7 @@ python -m pytest
 Current expected result:
 
 ```text
-89 passed
+98 passed
 ```
 
 On Windows/OneDrive, pytest may print cache or temp-directory warnings even
@@ -569,6 +572,8 @@ Expected finding:
   event with `signal` set to `ssrf_internal_target_pattern`
 - Rule: `CONFIG-EXPOSURE-001` when the log contains a `config_exposure` event
   with `signal` set to `config_exposure_pattern`
+- Rule: `CRYPTO-WEAK-001` when the log contains a `credential_storage` event
+  with `signal` set to `weak_password_hash_pattern`
 
 ## Full Demo Flow
 
@@ -630,6 +635,7 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `BAC-PRIV-ESC-001` | Detect admin-panel privilege escalation via broken access control | `admin_access` event with `signal=broken_access_control_pattern` | High | Implemented |
 | `WEB-SSRF-INTERNAL-001` | Detect server-side fetches aimed at internal targets | `outbound_request` event with `signal=ssrf_internal_target_pattern` | High | Implemented |
 | `CONFIG-EXPOSURE-001` | Detect sensitive configuration disclosed by an exposed debug endpoint | `config_exposure` event with `signal=config_exposure_pattern` | High | Implemented |
+| `CRYPTO-WEAK-001` | Detect passwords stored with a weak (unsalted) hashing algorithm | `credential_storage` event with `signal=weak_password_hash_pattern` | High | Implemented |
 
 ## Log Schema
 
@@ -663,6 +669,7 @@ Supported current `event_type` values:
 - `admin_access`
 - `outbound_request`
 - `config_exposure`
+- `credential_storage`
 - `lab_mode_change`
 
 ## Running Tests
@@ -712,6 +719,8 @@ Completed:
 - [x] `WEB-SSRF-INTERNAL-001`
 - [x] security misconfiguration scenario (exposed debug endpoint)
 - [x] `CONFIG-EXPOSURE-001`
+- [x] cryptographic failures scenario (weak password hashing)
+- [x] `CRYPTO-WEAK-001`
 - [x] reproducible brute-force demo workflow
 - [x] reproducible SQLi-like search demo workflow
 - [x] reproducible XSS-like comment demo workflow
@@ -732,14 +741,13 @@ Covered:
 
 - [x] A01 Broken Access Control - `BAC-PRIV-ESC-001`, `WEB-SSRF-INTERNAL-001`
 - [x] A02 Security Misconfiguration - `CONFIG-EXPOSURE-001` (exposed debug endpoint)
+- [x] A04 Cryptographic Failures - `CRYPTO-WEAK-001` (weak password hashing)
 - [x] A05 Injection - `WEB-SQLI-PATTERN-001`, `WEB-XSS-PATTERN-001`
 - [x] A07 Authentication Failures - `AUTH-BRUTE-FORCE-001` (brute force only)
 
 Planned scenarios (each: vulnerable route, secure-mode comparison, JSONL signal,
 detection rule, tests, docs):
 
-- [ ] A04 Cryptographic Failures - plaintext / weakly hashed password storage vs
-  salted hashing; rule `CRYPTO-WEAK-001` (high priority)
 - [ ] A09 Security Logging & Alerting Failures - sensitive action that emits no
   telemetry or fires no alert in insecure mode; detection gap rule `LOG-GAP-001`
   (high priority)

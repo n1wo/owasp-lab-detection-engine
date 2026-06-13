@@ -9,6 +9,7 @@ from .rules import (
     detect_config_exposure,
     detect_sqli_patterns,
     detect_ssrf_patterns,
+    detect_weak_crypto,
     detect_xss_patterns,
 )
 
@@ -23,6 +24,7 @@ __all__ = [
     "detect_config_exposure",
     "detect_sqli_patterns",
     "detect_ssrf_patterns",
+    "detect_weak_crypto",
     "detect_xss_patterns",
     "load_jsonl",
 ]

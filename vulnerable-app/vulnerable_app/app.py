@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import ipaddress
 import json
@@ -35,6 +36,8 @@ XSS_MARKERS = ("<script", "javascript:", "onerror=", "onload=", "<img", "<svg")
 BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
 SSRF_SIGNAL = "ssrf_internal_target_pattern"
 CONFIG_EXPOSURE_SIGNAL = "config_exposure_pattern"
+WEAK_HASH_SIGNAL = "weak_password_hash_pattern"
+PBKDF2_ITERATIONS = 200_000
 SSRF_ALLOWED_SCHEMES = {"http", "https"}
 SSRF_INTERNAL_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal"}
 
@@ -424,6 +427,59 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             return rendered, status_code
         return rendered
 
+    @app.get("/register")
+    def register_form() -> Response | str:
+        """Render the local lab account-registration form."""
+
+        return render_template_string(REGISTER_TEMPLATE, mode=_mode(), result=None, message=None)
+
+    @app.post("/register")
+    def register() -> Response | str:
+        """Register a local lab account, storing the password per the active mode.
+
+        Insecure mode stores the password as an unsalted MD5 digest &mdash; a
+        classic cryptographic failure that is trivially reversed with rainbow
+        tables. Secure mode derives a per-user salted PBKDF2-HMAC-SHA256 hash.
+        Both modes log a ``credential_storage`` event; only the weak path carries
+        the ``weak_password_hash_pattern`` detection signal. No account is
+        persisted &mdash; this is a storage demonstration only.
+        """
+
+        username = request.form.get("username", "").strip() or "lab-user"
+        password = request.form.get("password", "")
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+
+        if not password:
+            return (
+                render_template_string(
+                    REGISTER_TEMPLATE,
+                    mode=_mode(),
+                    result=None,
+                    message="Enter a password to see how it would be stored.",
+                ),
+                400,
+            )
+
+        stored = _store_password(password, _mode())
+        _log_credential_storage_event(
+            logger,
+            request_id=request_id,
+            source_ip=source_ip,
+            username=username,
+            status_code=200,
+            algorithm=stored["algorithm"],
+            salted=stored["salted"],
+            reason=stored["reason"],
+            signal=stored["signal"],
+        )
+        return render_template_string(
+            REGISTER_TEMPLATE,
+            mode=_mode(),
+            result={**stored, "username": username},
+            message=None,
+        )
+
     @app.get("/debug")
     def debug() -> Response | str:
         """Diagnostics endpoint left enabled by an intentional misconfiguration.
@@ -630,6 +686,36 @@ def _simulated_fetch(url: str) -> str:
     return f"# simulated response body for {url} (local lab, not real)\n"
 
 
+def _store_password(password: str, mode: str) -> dict[str, Any]:
+    """Return how the local lab would store a password under the active mode.
+
+    Secure mode derives a salted PBKDF2-HMAC-SHA256 hash. Insecure mode stores
+    an unsalted MD5 digest, which is fast to brute-force and reversible via
+    rainbow tables &mdash; the intentional cryptographic failure.
+    """
+
+    if mode == "secure":
+        salt = os.urandom(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+        return {
+            "algorithm": "pbkdf2_sha256",
+            "salted": True,
+            "stored_value": f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt.hex()}${digest.hex()}",
+            "reason": "strong_password_hash",
+            "signal": None,
+        }
+
+    # Intentional lab weakness: unsalted MD5 is fast and reversible.
+    digest = hashlib.md5(password.encode("utf-8")).hexdigest()
+    return {
+        "algorithm": "md5",
+        "salted": False,
+        "stored_value": digest,
+        "reason": "weak_password_hash",
+        "signal": WEAK_HASH_SIGNAL,
+    }
+
+
 def _exposed_config() -> dict[str, str]:
     """Collect the sensitive configuration the insecure debug endpoint leaks.
 
@@ -812,6 +898,17 @@ def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
                 f"{event.get('request_path', 'unknown path')} (security misconfiguration)."
             ),
         )
+    if event_type == "credential_storage" and signal == WEAK_HASH_SIGNAL:
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Password stored with weak hashing",
+            rule="CRYPTO-WEAK-001",
+            detail=(
+                f"Password for {event.get('username', 'anonymous')!r} stored using "
+                f"{event.get('algorithm', 'unknown')} without salting (cryptographic failure)."
+            ),
+        )
     return None
 
 
@@ -861,6 +958,35 @@ def _log_admin_access(
             "signal": signal,
             "granted": granted,
             "success": granted,
+        }
+    )
+
+
+def _log_credential_storage_event(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    username: str,
+    status_code: int,
+    algorithm: str,
+    salted: bool,
+    reason: str,
+    signal: str | None,
+) -> None:
+    """Write one structured password-storage event for local detection rules."""
+
+    logger.write(
+        {
+            "event_type": "credential_storage",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": username or "anonymous",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "algorithm": algorithm,
+            "salted": salted,
+            "success": True,
         }
     )
 
@@ -1122,6 +1248,7 @@ NAV_SNIPPET = """
     <a href="/comment">XSS &middot; Comment</a>
     <a href="/fetch">SSRF &middot; Fetch</a>
     <a href="/debug">Misconfig &middot; Debug</a>
+    <a href="/register">Crypto &middot; Register</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
     <div class="labnav-group">Vulnerabilities</div>
@@ -1314,6 +1441,11 @@ HOME_TEMPLATE = """
             <div class="rule">CONFIG-EXPOSURE-001</div>
             <div class="name">Security misconfiguration</div>
             <p class="desc">A debug endpoint leaks the secret key and credentials in insecure mode; secure mode disables it with a 404.</p>
+          </a>
+          <a class="scenario" href="/register">
+            <div class="rule">CRYPTO-WEAK-001</div>
+            <div class="name">Cryptographic failures</div>
+            <p class="desc">Register an account and see the password stored as unsalted MD5 in insecure mode; secure mode uses salted PBKDF2.</p>
           </a>
         </div>
       </div>
@@ -1651,6 +1783,96 @@ FETCH_TEMPLATE = """
       {% endif %}
     </div>
     <div class="footer">WEB-SSRF-INTERNAL-001 &middot; logs/application.jsonl</div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
+REGISTER_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Register</title>
+    <style>{styles}
+      .store-dump { margin: 1.2rem 0 0; padding: 0; list-style: none; }
+      .store-dump li {
+        display: flex; gap: 0.8rem; align-items: baseline;
+        font-family: var(--mono); font-size: 0.82rem;
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+        background: rgba(255, 255, 255, 0.02); overflow-wrap: anywhere;
+      }
+      .store-dump .k { color: var(--text-faint); min-width: 8rem; }
+      .store-dump .v { color: var(--accent); }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
+    <div class="card">
+      <div class="title-row">
+        <h1>Create account</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A04 &middot; CRYPTO-WEAK-001 &middot; High</div>
+          <h3>Cryptographic failures</h3>
+          <p>How a password is stored decides what happens when a database leaks. Fast, unsalted hashes like MD5 are reversed in seconds with rainbow tables, so a leak becomes an instant account takeover. A salted, slow key-derivation function makes that impractical.</p>
+          <h4>Try it</h4>
+          <p>Register an account and look at the stored value. In insecure mode the same password always yields the same MD5 digest; flip to secure mode and it becomes a salted PBKDF2 hash.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the password is stored as an unsalted MD5 digest &mdash; fast to crack and identical for identical passwords.</div>
+            <div class="sec"><strong>Secure:</strong> a per-user random salt feeds PBKDF2-HMAC-SHA256, so stored values are unique and expensive to brute-force.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>A <code>credential_storage</code> event with signal <code>weak_password_hash_pattern</code> raises <strong>CRYPTO-WEAK-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
+      <p class="subtitle">Cryptographic-storage lab &mdash; how each password is stored is logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. No account is persisted &mdash; this only demonstrates how the password would be stored.</div>
+      {% if message %}<div class="notice error">&#9940;&nbsp; {{ message }}</div>{% endif %}
+      <form method="post" action="/register">
+        <label>
+          Username
+          <input name="username" autocomplete="off" placeholder="lab-user">
+        </label>
+        <label>
+          Password
+          <input name="password" type="password" autocomplete="new-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">
+        </label>
+        <button type="submit">Create account</button>
+      </form>
+      {% if result %}
+        {% if result.signal %}
+        <div class="notice error" style="margin-top:1rem;">&#9940;&nbsp; Stored with a weak algorithm. This is logged as <strong>CRYPTO-WEAK-001</strong>.</div>
+        {% else %}
+        <div class="notice" style="margin-top:1rem;">&#9989;&nbsp; Stored with a salted, slow key-derivation function. No detection signal is raised.</div>
+        {% endif %}
+        <h2>How it was stored</h2>
+        <ul class="store-dump">
+          <li><span class="k">username</span><span class="v">{{ result.username }}</span></li>
+          <li><span class="k">algorithm</span><span class="v">{{ result.algorithm }}</span></li>
+          <li><span class="k">salted</span><span class="v">{{ result.salted }}</span></li>
+          <li><span class="k">stored_value</span><span class="v">{{ result.stored_value }}</span></li>
+        </ul>
+      {% endif %}
+    </div>
+    <div class="footer">CRYPTO-WEAK-001 &middot; logs/application.jsonl</div>
     {nav}
   </body>
 </html>

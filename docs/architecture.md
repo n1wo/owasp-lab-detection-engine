@@ -4,9 +4,10 @@
 
 This document describes the local lab architecture. The vulnerable app has a
 minimal login implementation plus local search, comment, admin-panel,
-server-side fetch, and debug-endpoint scenarios, and a detection engine that
-parses JSONL logs for brute-force, SQLi-like, XSS-like, broken-access-control,
-SSRF, and security-misconfiguration pattern detection.
+server-side fetch, debug-endpoint, and registration scenarios, and a detection
+engine that parses JSONL logs for brute-force, SQLi-like, XSS-like,
+broken-access-control, SSRF, security-misconfiguration, and cryptographic-failure
+pattern detection.
 
 ## Components
 
@@ -15,9 +16,9 @@ SSRF, and security-misconfiguration pattern detection.
 The vulnerable app is a local Flask web application with configurable
 vulnerable and secure modes. The current implementation includes a login page,
 a search page, a comment page, an admin panel guarded by a broken access
-control check, a server-side fetch page, a debug diagnostics endpoint, and structured logs for
-login outcomes, suspicious input, admin access, outbound requests, and
-configuration exposure.
+control check, a server-side fetch page, a debug diagnostics endpoint, an account registration
+page, and structured logs for login outcomes, suspicious input, admin access,
+outbound requests, configuration exposure, and credential storage.
 
 ### Structured Logs
 
@@ -31,7 +32,7 @@ Current telemetry schema:
 | Field | Description |
 | --- | --- |
 | `timestamp` | UTC ISO-8601 event timestamp |
-| `event_type` | `login_success`, `login_failure`, `account_lockout`, `suspicious_input`, `admin_access`, `outbound_request`, `config_exposure`, or `lab_mode_change` |
+| `event_type` | `login_success`, `login_failure`, `account_lockout`, `suspicious_input`, `admin_access`, `outbound_request`, `config_exposure`, `credential_storage`, or `lab_mode_change` |
 | `source_ip` | Local/private client address |
 | `username` | Fictional local lab username |
 | `user_agent` | Client user-agent string, when provided |
@@ -50,9 +51,9 @@ Current telemetry schema:
 The Python detection engine reads local JSONL logs, normalizes events, applies
 implemented detection rules, and emits local findings. Current rules are
 `AUTH-BRUTE-FORCE-001`, `WEB-SQLI-PATTERN-001`, `WEB-XSS-PATTERN-001`,
-`BAC-PRIV-ESC-001`, `WEB-SSRF-INTERNAL-001`, and `CONFIG-EXPOSURE-001`. The
-engine should focus on defensive detection behavior rather than offensive
-instructions.
+`BAC-PRIV-ESC-001`, `WEB-SSRF-INTERNAL-001`, `CONFIG-EXPOSURE-001`, and
+`CRYPTO-WEAK-001`. The engine should focus on defensive detection behavior
+rather than offensive instructions.
 
 ### Optional SIEM/Wazuh Export
 

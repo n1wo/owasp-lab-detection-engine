@@ -19,6 +19,7 @@ publicly.
 - admin panel at `/dashboard` with an intentionally broken access control check
 - server-side fetch page at `/fetch` for SSRF-style local learning
 - debug endpoint at `/debug` that leaks config in insecure mode (misconfiguration)
+- registration page at `/register` with weak vs salted password hashing
 - live SOC alerts page at `/soc`
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
@@ -96,6 +97,17 @@ Debug-endpoint access events use `event_type=config_exposure` and include:
 | `exposed_keys` | List of configuration keys that were disclosed |
 | `reason` | `exposed_debug_config` or `debug_endpoint_disabled` |
 
+## Credential Storage Telemetry Schema
+
+Registration events use `event_type=credential_storage` and include:
+
+| Field | Description |
+| --- | --- |
+| `signal` | `weak_password_hash_pattern` when stored with a weak algorithm, otherwise `null` |
+| `algorithm` | Hashing algorithm used, `md5` (insecure) or `pbkdf2_sha256` (secure) |
+| `salted` | Whether a per-user salt was applied |
+| `reason` | `weak_password_hash` or `strong_password_hash` |
+
 ## Live SOC Alerts
 
 The `/soc` route reads the local JSONL log directly when no generated
@@ -109,6 +121,7 @@ The `/soc` route reads the local JSONL log directly when no generated
 - privilege escalation to the admin panel (broken access control)
 - server-side requests to internal targets (SSRF)
 - sensitive configuration exposed by the debug endpoint (misconfiguration)
+- passwords stored with weak hashing at registration (cryptographic failure)
 
 ## Local Commands
 
@@ -145,6 +158,7 @@ admin / admin-password
 The current vulnerable scenarios are a brute-forceable login flow, a SQLi-style
 suspicious search input flow, an XSS-style suspicious comment rendering flow, a
 broken access control flow on the `/dashboard` admin panel, an SSRF-style
-server-side fetch flow on `/fetch`, and a security misconfiguration flow on the
-`/debug` endpoint, all in insecure mode. Future scenarios should keep vulnerable
-and secure behavior clearly separated.
+server-side fetch flow on `/fetch`, a security misconfiguration flow on the
+`/debug` endpoint, and a cryptographic failure flow on the `/register` endpoint,
+all in insecure mode. Future scenarios should keep vulnerable and secure
+behavior clearly separated.

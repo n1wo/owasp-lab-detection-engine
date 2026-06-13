@@ -19,6 +19,8 @@ Current responsibilities:
 - evaluate SSRF (internal-target) detection logic for local lab scenarios
 - evaluate security-misconfiguration (config-exposure) detection logic for local
   lab scenarios
+- evaluate cryptographic-failure (weak password hashing) detection logic for
+  local lab scenarios
 - report findings in a clear local output format
 - report malformed JSONL lines safely without stopping valid parsing
 - ignore unknown additional log fields safely while preserving the raw event
@@ -71,6 +73,10 @@ private, link-local, or otherwise internal target). Severity is High.
 `CONFIG-EXPOSURE-001` detects `config_exposure` events where `signal` is
 `config_exposure_pattern` (an exposed debug endpoint disclosing the secret key,
 credentials, and runtime settings). Severity is High.
+
+`CRYPTO-WEAK-001` detects `credential_storage` events where `signal` is
+`weak_password_hash_pattern` (a password stored with a fast, unsalted hash such
+as MD5 instead of a salted key-derivation function). Severity is High.
 
 All rules emit:
 

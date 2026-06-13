@@ -408,3 +408,66 @@ python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
+## Cryptographic Failures Scenario
+
+This scenario has no demo script. It is driven manually against the local
+`/register` route, which demonstrates how a password would be stored.
+
+In insecure mode the password is stored as an unsalted MD5 digest. In secure
+mode it is stored as a per-user salted PBKDF2-HMAC-SHA256 hash. No account is
+persisted.
+
+### Logs Generated
+
+The app writes a `credential_storage` event to:
+
+```text
+logs/application.jsonl
+```
+
+The cryptographic-storage event includes:
+
+- `event_type`: `credential_storage`
+- `signal`: `weak_password_hash_pattern` (insecure) or absent (secure)
+- `request_path`: `/register`
+- `algorithm`: `md5` (insecure) or `pbkdf2_sha256` (secure)
+- `salted`: `false` (insecure) or `true` (secure)
+- `reason`: `weak_password_hash` or `strong_password_hash`
+- `lab_mode`
+
+### Why The Rule Triggers
+
+`CRYPTO-WEAK-001` triggers when the detection engine sees a `credential_storage`
+event with `signal` set to `weak_password_hash_pattern`. Secure-mode storage
+carries no signal and does not match.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `CRYPTO-WEAK-001`
+- `severity`: `High`
+- `source_ip`
+- `username`: the registered lab username
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app, then register a local lab account:
+
+```bash
+docker compose up --build
+curl -X POST -d "username=lab-user&password=hunter2" "http://127.0.0.1:8080/register"
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
