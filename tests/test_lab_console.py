@@ -59,6 +59,7 @@ def test_help_popup_present_on_each_scenario_page(tmp_path):
         assert b'class="help-btn"' in response.data, path
         assert b'class="help-modal"' in response.data, path
         assert b"onclick=\"openHelp()\"" in response.data, path
+        assert b".help-btn {\n        position: absolute;" in response.data, path
         assert rule_id in response.data, path
 
 

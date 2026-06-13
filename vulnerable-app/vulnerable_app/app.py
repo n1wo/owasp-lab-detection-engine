@@ -1107,6 +1107,7 @@ BASE_STYLES = """
         box-shadow: 0 0 10px var(--accent);
       }
       .card {
+        position: relative;
         width: 100%;
         max-width: 26rem;
         background: linear-gradient(180deg, var(--surface-2), var(--surface));
@@ -1179,9 +1180,10 @@ BASE_STYLES = """
       }
       .meta { font-family: var(--mono); font-size: 0.8rem; color: var(--text-muted); }
       .meta strong { color: var(--accent); font-weight: 600; }
-      .title-row { display: flex; align-items: baseline; gap: 0.55rem; }
+      .title-row { display: block; padding-right: 2.2rem; }
       .title-row h1 { margin-bottom: 0.35rem; }
       .help-btn {
+        position: absolute; top: 1.35rem; right: 1.35rem;
         width: 1.5rem; height: 1.5rem; flex: none; margin: 0; padding: 0;
         border-radius: 50%; border: 1px solid var(--accent-strong);
         background: rgba(34, 211, 238, 0.08); color: var(--accent);
