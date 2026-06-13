@@ -13,6 +13,7 @@ SQLI_RULE_ID = "WEB-SQLI-PATTERN-001"
 XSS_RULE_ID = "WEB-XSS-PATTERN-001"
 BROKEN_ACCESS_RULE_ID = "BAC-PRIV-ESC-001"
 SSRF_RULE_ID = "WEB-SSRF-INTERNAL-001"
+CONFIG_EXPOSURE_RULE_ID = "CONFIG-EXPOSURE-001"
 SEVERITY = "Medium"
 SEVERITY_HIGH = "High"
 FAILURE_THRESHOLD = 5
@@ -21,6 +22,7 @@ SQLI_SIGNAL = "sql_injection_like_pattern"
 XSS_SIGNAL = "xss_like_pattern"
 BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
 SSRF_SIGNAL = "ssrf_internal_target_pattern"
+CONFIG_EXPOSURE_SIGNAL = "config_exposure_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -32,6 +34,7 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
         *detect_xss_patterns(events),
         *detect_broken_access_control(events),
         *detect_ssrf_patterns(events),
+        *detect_config_exposure(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -211,6 +214,49 @@ def detect_broken_access_control(events: list[LogEvent]) -> list[DetectionFindin
                 reason=(
                     f"Privilege escalation: admin panel on {request_path} authorized via "
                     f"client-supplied role for {event.username!r} from {event.source_ip}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_config_exposure(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect sensitive configuration disclosed by an exposed debug endpoint.
+
+    The vulnerable app logs a ``config_exposure`` event carrying the
+    ``config_exposure_pattern`` signal whenever its debug/diagnostics endpoint
+    is left enabled and serves sensitive configuration (the signing secret key,
+    lab credentials, runtime settings). Each such event is a security
+    misconfiguration finding. Requests that hit the disabled endpoint in secure
+    mode log the event without the signal and do not match.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "config_exposure":
+            continue
+        if event.raw.get("signal") != CONFIG_EXPOSURE_SIGNAL:
+            continue
+
+        request_path = str(event.raw.get("request_path") or "unknown")
+        exposed = event.raw.get("exposed_keys") or []
+        if isinstance(exposed, list):
+            exposed_str = ", ".join(str(key) for key in exposed) or "unknown"
+        else:
+            exposed_str = str(exposed)
+        findings.append(
+            DetectionFinding(
+                rule_id=CONFIG_EXPOSURE_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Security misconfiguration: debug endpoint on {request_path} exposed "
+                    f"sensitive configuration ({exposed_str}) from {event.source_ip}"
                 ),
             )
         )

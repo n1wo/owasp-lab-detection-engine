@@ -6,6 +6,7 @@ import hmac
 import ipaddress
 import json
 import os
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -33,6 +34,7 @@ XSS_SIGNAL = "xss_like_pattern"
 XSS_MARKERS = ("<script", "javascript:", "onerror=", "onload=", "<img", "<svg")
 BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
 SSRF_SIGNAL = "ssrf_internal_target_pattern"
+CONFIG_EXPOSURE_SIGNAL = "config_exposure_pattern"
 SSRF_ALLOWED_SCHEMES = {"http", "https"}
 SSRF_INTERNAL_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal"}
 
@@ -422,6 +424,48 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             return rendered, status_code
         return rendered
 
+    @app.get("/debug")
+    def debug() -> Response | str:
+        """Diagnostics endpoint left enabled by an intentional misconfiguration.
+
+        Insecure mode serves a debug page that dumps sensitive application
+        configuration (secret key, lab credentials, runtime settings) — a
+        classic security misconfiguration where a debug/diagnostics endpoint is
+        left exposed. Secure mode disables the endpoint and returns HTTP ``404``.
+        Both modes log the access, but only the insecure exposure carries the
+        ``config_exposure_pattern`` detection signal.
+        """
+
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+
+        if _mode() == "insecure":
+            config = _exposed_config()
+            exposed_keys = sorted(config.keys())
+            _log_config_exposure_event(
+                logger,
+                request_id=request_id,
+                source_ip=source_ip,
+                status_code=200,
+                exposed_keys=exposed_keys,
+                reason="exposed_debug_config",
+                signal=CONFIG_EXPOSURE_SIGNAL,
+            )
+            return render_template_string(
+                DEBUG_TEMPLATE, mode=_mode(), config=config, disabled=False
+            )
+
+        _log_config_exposure_event(
+            logger,
+            request_id=request_id,
+            source_ip=source_ip,
+            status_code=404,
+            exposed_keys=[],
+            reason="debug_endpoint_disabled",
+            signal=None,
+        )
+        return render_template_string(DEBUG_TEMPLATE, mode=_mode(), config=None, disabled=True), 404
+
     @app.get("/health")
     def health() -> dict[str, str]:
         """Return a small readiness response with the configured lab mode."""
@@ -586,6 +630,25 @@ def _simulated_fetch(url: str) -> str:
     return f"# simulated response body for {url} (local lab, not real)\n"
 
 
+def _exposed_config() -> dict[str, str]:
+    """Collect the sensitive configuration the insecure debug endpoint leaks.
+
+    This intentionally surfaces values that should never be exposed (the signing
+    secret key and the lab credential set) to model a security misconfiguration.
+    """
+
+    cfg = current_app.config
+    return {
+        "lab_mode": str(cfg.get("LAB_MODE")),
+        "secret_key": str(cfg.get("SECRET_KEY")),
+        "log_file": str(cfg.get("LAB_LOG_FILE")),
+        "flask_debug": str(current_app.debug),
+        "valid_usernames": ", ".join(sorted(VALID_USERS)),
+        "admin_usernames": ", ".join(sorted(ADMIN_USERS)),
+        "python_version": sys.version.split()[0],
+    }
+
+
 def _common_event_fields(status_code: int, request_id: str) -> dict[str, Any]:
     """Build request metadata shared by all local lab telemetry events."""
 
@@ -737,6 +800,18 @@ def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
                 f"on {event.get('request_path', 'unknown path')} (broken access control)."
             ),
         )
+    if event_type == "config_exposure" and signal == CONFIG_EXPOSURE_SIGNAL:
+        exposed = ", ".join(event.get("exposed_keys") or []) or "unknown"
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Sensitive configuration exposed",
+            rule="CONFIG-EXPOSURE-001",
+            detail=(
+                f"Debug endpoint exposed sensitive configuration ({exposed}) on "
+                f"{event.get('request_path', 'unknown path')} (security misconfiguration)."
+            ),
+        )
     return None
 
 
@@ -786,6 +861,32 @@ def _log_admin_access(
             "signal": signal,
             "granted": granted,
             "success": granted,
+        }
+    )
+
+
+def _log_config_exposure_event(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    status_code: int,
+    exposed_keys: list[str],
+    reason: str,
+    signal: str | None,
+) -> None:
+    """Write one structured debug/config-exposure event for local detection rules."""
+
+    logger.write(
+        {
+            "event_type": "config_exposure",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": "anonymous",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "exposed_keys": exposed_keys,
+            "success": signal is not None,
         }
     )
 
@@ -1020,6 +1121,7 @@ NAV_SNIPPET = """
     <a href="/search">SQL injection &middot; Search</a>
     <a href="/comment">XSS &middot; Comment</a>
     <a href="/fetch">SSRF &middot; Fetch</a>
+    <a href="/debug">Misconfig &middot; Debug</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
     <div class="labnav-group">Vulnerabilities</div>
@@ -1208,6 +1310,11 @@ HOME_TEMPLATE = """
             <div class="name">Server-side request forgery</div>
             <p class="desc">Make the server fetch a URL. Insecure mode reaches internal targets like cloud metadata; secure mode blocks them.</p>
           </a>
+          <a class="scenario" href="/debug">
+            <div class="rule">CONFIG-EXPOSURE-001</div>
+            <div class="name">Security misconfiguration</div>
+            <p class="desc">A debug endpoint leaks the secret key and credentials in insecure mode; secure mode disables it with a 404.</p>
+          </a>
         </div>
       </div>
 
@@ -1332,7 +1439,7 @@ SEARCH_TEMPLATE = """
       <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
         <div class="help-modal" role="dialog" aria-modal="true">
           <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
-          <div class="help-rule">OWASP A03 &middot; WEB-SQLI-PATTERN-001 &middot; Medium</div>
+          <div class="help-rule">OWASP A05 &middot; WEB-SQLI-PATTERN-001 &middot; Medium</div>
           <h3>SQL injection</h3>
           <p>When user input is concatenated straight into a database query, an attacker can change the query's meaning &mdash; reading records they shouldn't, bypassing filters, or dumping whole tables.</p>
           <h4>Try it</h4>
@@ -1422,7 +1529,7 @@ COMMENT_TEMPLATE = """
       <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
         <div class="help-modal" role="dialog" aria-modal="true">
           <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
-          <div class="help-rule">OWASP A03 &middot; WEB-XSS-PATTERN-001 &middot; Medium</div>
+          <div class="help-rule">OWASP A05 &middot; WEB-XSS-PATTERN-001 &middot; Medium</div>
           <h3>Cross-site scripting (XSS)</h3>
           <p>XSS injects attacker-controlled HTML or JavaScript that then runs in other users' browsers &mdash; stealing sessions or keystrokes, or acting as the victim.</p>
           <h4>Try it</h4>
@@ -1503,7 +1610,7 @@ FETCH_TEMPLATE = """
       <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
         <div class="help-modal" role="dialog" aria-modal="true">
           <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
-          <div class="help-rule">OWASP A10 &middot; WEB-SSRF-INTERNAL-001 &middot; High</div>
+          <div class="help-rule">OWASP A01 &middot; WEB-SSRF-INTERNAL-001 &middot; High</div>
           <h3>Server-side request forgery (SSRF)</h3>
           <p>SSRF makes the server itself fetch a URL you supply. That lets an attacker reach things the server can reach but they can't &mdash; internal services, admin endpoints, or the cloud metadata API that hands out credentials.</p>
           <h4>Try it</h4>
@@ -1544,6 +1651,78 @@ FETCH_TEMPLATE = """
       {% endif %}
     </div>
     <div class="footer">WEB-SSRF-INTERNAL-001 &middot; logs/application.jsonl</div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
+DEBUG_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Debug</title>
+    <style>{styles}
+      .config-dump { margin: 1.2rem 0 0; padding: 0; list-style: none; }
+      .config-dump li {
+        display: flex; gap: 0.8rem; align-items: baseline;
+        font-family: var(--mono); font-size: 0.82rem;
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+        background: rgba(255, 255, 255, 0.02); overflow-wrap: anywhere;
+      }
+      .config-dump .k { color: var(--text-faint); min-width: 9rem; }
+      .config-dump .v { color: var(--accent); }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
+    <div class="card">
+      <div class="title-row">
+        <h1>Debug diagnostics</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A02 &middot; CONFIG-EXPOSURE-001 &middot; High</div>
+          <h3>Security misconfiguration</h3>
+          <p>Diagnostic and debug endpoints are convenient in development but dangerous in production. Left enabled, this one hands out the application's signing secret key and the full credential set &mdash; everything an attacker needs to forge sessions and log in.</p>
+          <h4>Try it</h4>
+          <p>Just open <code>/debug</code> in insecure mode. The page dumps live configuration. Then flip to secure mode from the lab console and reload &mdash; it returns 404.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the debug endpoint is enabled and discloses the secret key, credentials, and runtime settings.</div>
+            <div class="sec"><strong>Secure:</strong> the endpoint is disabled and responds with HTTP 404; nothing sensitive is returned.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>A <code>config_exposure</code> event with signal <code>config_exposure_pattern</code> raises <strong>CONFIG-EXPOSURE-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
+      <p class="subtitle">Misconfiguration lab &mdash; debug-endpoint access is logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      {% if disabled %}
+      <div class="notice warning">&#9888;&#65039;&nbsp; 404 &middot; Diagnostics are disabled in secure mode. No configuration is exposed.</div>
+      {% else %}
+      <div class="notice error">&#9940;&nbsp; This debug endpoint is exposing sensitive configuration. The disclosure is logged as <strong>CONFIG-EXPOSURE-001</strong>.</div>
+      <h2>Application configuration</h2>
+      <ul class="config-dump">
+        {% for key, value in config.items() %}<li><span class="k">{{ key }}</span><span class="v">{{ value }}</span></li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    <div class="footer">CONFIG-EXPOSURE-001 &middot; logs/application.jsonl</div>
     {nav}
   </body>
 </html>

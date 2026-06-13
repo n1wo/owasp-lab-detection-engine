@@ -18,6 +18,7 @@ publicly.
 - Flask-based comment page
 - admin panel at `/dashboard` with an intentionally broken access control check
 - server-side fetch page at `/fetch` for SSRF-style local learning
+- debug endpoint at `/debug` that leaks config in insecure mode (misconfiguration)
 - live SOC alerts page at `/soc`
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
@@ -85,6 +86,16 @@ Server-side fetch events use `event_type=outbound_request` and include:
 | `target_host` | Host parsed from `target_url` |
 | `reason` | `fetched_internal_target` or `blocked_internal_target` |
 
+## Config Exposure Telemetry Schema
+
+Debug-endpoint access events use `event_type=config_exposure` and include:
+
+| Field | Description |
+| --- | --- |
+| `signal` | `config_exposure_pattern` when config is disclosed, otherwise `null` |
+| `exposed_keys` | List of configuration keys that were disclosed |
+| `reason` | `exposed_debug_config` or `debug_endpoint_disabled` |
+
 ## Live SOC Alerts
 
 The `/soc` route reads the local JSONL log directly when no generated
@@ -97,6 +108,7 @@ The `/soc` route reads the local JSONL log directly when no generated
 - XSS-like suspicious input
 - privilege escalation to the admin panel (broken access control)
 - server-side requests to internal targets (SSRF)
+- sensitive configuration exposed by the debug endpoint (misconfiguration)
 
 ## Local Commands
 
@@ -132,6 +144,7 @@ admin / admin-password
 
 The current vulnerable scenarios are a brute-forceable login flow, a SQLi-style
 suspicious search input flow, an XSS-style suspicious comment rendering flow, a
-broken access control flow on the `/dashboard` admin panel, and an SSRF-style
-server-side fetch flow on `/fetch`, all in insecure mode. Future scenarios
-should keep vulnerable and secure behavior clearly separated.
+broken access control flow on the `/dashboard` admin panel, an SSRF-style
+server-side fetch flow on `/fetch`, and a security misconfiguration flow on the
+`/debug` endpoint, all in insecure mode. Future scenarios should keep vulnerable
+and secure behavior clearly separated.

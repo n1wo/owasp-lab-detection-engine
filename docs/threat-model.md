@@ -32,6 +32,7 @@ The current implemented scenarios are:
 - reflected XSS-style unsafe comment rendering in insecure mode
 - broken access control on the admin panel in insecure mode
 - server-side request forgery against internal targets in insecure mode
+- security misconfiguration via an exposed debug endpoint in insecure mode
 
 Each scenario should eventually include:
 
@@ -136,6 +137,26 @@ In `LAB_MODE=secure`, the same route enforces an http(s) allowlist:
 
 No real network request is ever made; the lab returns a canned response so the
 scenario stays deterministic and safe.
+
+## Current Security Misconfiguration Scenario
+
+In `LAB_MODE=insecure`, the local `/debug` route is an enabled
+diagnostics endpoint:
+
+- visiting `/debug` dumps live application configuration, including the signing
+  `secret_key` and the lab credential set
+- an `config_exposure` event is logged with `signal=config_exposure_pattern`
+  and `reason=exposed_debug_config`, listing the disclosed keys
+
+In `LAB_MODE=secure`, the same route is disabled:
+
+- `/debug` returns HTTP `404` and discloses nothing
+- the access is still logged with `reason=debug_endpoint_disabled` and no
+  signal, so a properly disabled endpoint is not flagged
+
+This scenario models how a debug or diagnostics endpoint left enabled in
+production leaks secrets that enable session forgery and credential abuse. All
+values are fictional and local to this lab.
 
 ## Assumptions
 

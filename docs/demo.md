@@ -346,3 +346,65 @@ python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
+## Security Misconfiguration Scenario
+
+This scenario has no demo script. It is driven manually against the local
+`/debug` route, a diagnostics endpoint left enabled by misconfiguration.
+
+In insecure mode, visiting `/debug` dumps live application configuration,
+including the signing secret key and the lab credential set. In secure mode the
+endpoint is disabled and returns HTTP `404`.
+
+### Logs Generated
+
+The app writes a `config_exposure` event to:
+
+```text
+logs/application.jsonl
+```
+
+The misconfiguration event includes:
+
+- `event_type`: `config_exposure`
+- `signal`: `config_exposure_pattern`
+- `request_path`: `/debug`
+- `exposed_keys`: the configuration keys disclosed (e.g. `secret_key`)
+- `reason`: `exposed_debug_config` (insecure) or `debug_endpoint_disabled` (secure)
+- `lab_mode`
+
+### Why The Rule Triggers
+
+`CONFIG-EXPOSURE-001` triggers when the detection engine sees a
+`config_exposure` event with `signal` set to `config_exposure_pattern`. The
+disabled-endpoint event in secure mode carries no signal and does not match.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `CONFIG-EXPOSURE-001`
+- `severity`: `High`
+- `source_ip`
+- `username`: `anonymous`
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app, then open the exposed debug endpoint:
+
+```bash
+docker compose up --build
+curl "http://127.0.0.1:8080/debug"
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+

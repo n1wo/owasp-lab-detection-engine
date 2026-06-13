@@ -17,6 +17,8 @@ Current responsibilities:
 - evaluate XSS-like suspicious-input detection logic for local lab scenarios
 - evaluate broken-access-control detection logic for local lab scenarios
 - evaluate SSRF (internal-target) detection logic for local lab scenarios
+- evaluate security-misconfiguration (config-exposure) detection logic for local
+  lab scenarios
 - report findings in a clear local output format
 - report malformed JSONL lines safely without stopping valid parsing
 - ignore unknown additional log fields safely while preserving the raw event
@@ -65,6 +67,10 @@ role parameter rather than a real admin session). Severity is High.
 `WEB-SSRF-INTERNAL-001` detects `outbound_request` events where `signal` is
 `ssrf_internal_target_pattern` (a server-side fetch aimed at a loopback,
 private, link-local, or otherwise internal target). Severity is High.
+
+`CONFIG-EXPOSURE-001` detects `config_exposure` events where `signal` is
+`config_exposure_pattern` (an exposed debug endpoint disclosing the secret key,
+credentials, and runtime settings). Severity is High.
 
 All rules emit:
 
