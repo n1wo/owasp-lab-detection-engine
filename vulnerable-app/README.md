@@ -16,6 +16,8 @@ publicly.
 - Flask-based login page
 - Flask-based search page
 - Flask-based comment page
+- admin panel at `/dashboard` with an intentionally broken access control check
+- server-side fetch page at `/fetch` for SSRF-style local learning
 - live SOC alerts page at `/soc`
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
@@ -29,7 +31,7 @@ Each login-related JSONL event includes:
 | Field | Description |
 | --- | --- |
 | `timestamp` | UTC ISO-8601 event timestamp |
-| `event_type` | `login_success`, `login_failure`, `account_lockout`, or `access_denied` |
+| `event_type` | `login_success`, `login_failure`, or `account_lockout` |
 | `source_ip` | Local/private client address |
 | `username` | Fictional local lab username |
 | `user_agent` | Client user-agent string, when provided |
@@ -62,6 +64,27 @@ XSS-like comment events use `event_type=suspicious_input` and include:
 | `input_value` | Fictional local lab input value |
 | `reason` | `rendered_suspicious_input` or `rejected_suspicious_input` |
 
+## Admin Access Telemetry Schema
+
+Admin-panel access events use `event_type=admin_access` and include:
+
+| Field | Description |
+| --- | --- |
+| `signal` | `broken_access_control_pattern` when the panel is reached via the exploit, otherwise `null` |
+| `granted` | Whether the admin panel was authorized |
+| `reason` | `broken_access_control_role_param`, `authorized_admin_session`, or `missing_admin_role` |
+
+## Outbound Request Telemetry Schema
+
+Server-side fetch events use `event_type=outbound_request` and include:
+
+| Field | Description |
+| --- | --- |
+| `signal` | `ssrf_internal_target_pattern` for the current SSRF-style lab |
+| `target_url` | User-supplied URL the server was asked to fetch |
+| `target_host` | Host parsed from `target_url` |
+| `reason` | `fetched_internal_target` or `blocked_internal_target` |
+
 ## Live SOC Alerts
 
 The `/soc` route reads the local JSONL log directly when no generated
@@ -72,6 +95,8 @@ The `/soc` route reads the local JSONL log directly when no generated
 - account lockouts
 - SQLi-like suspicious input
 - XSS-like suspicious input
+- privilege escalation to the admin panel (broken access control)
+- server-side requests to internal targets (SSRF)
 
 ## Local Commands
 
@@ -106,6 +131,7 @@ admin / admin-password
 ## Boundary
 
 The current vulnerable scenarios are a brute-forceable login flow, a SQLi-style
-suspicious search input flow, and an XSS-style suspicious comment rendering flow
-in insecure mode. Future scenarios should keep vulnerable and secure behavior
-clearly separated.
+suspicious search input flow, an XSS-style suspicious comment rendering flow, a
+broken access control flow on the `/dashboard` admin panel, and an SSRF-style
+server-side fetch flow on `/fetch`, all in insecure mode. Future scenarios
+should keep vulnerable and secure behavior clearly separated.

@@ -17,9 +17,9 @@ specific local-only scenarios.
 - Prefer defensive explanations: what is logged, what signal appears, how a
   rule detects it, and how secure mode should differ.
 
-## Expected Future Commands
+## Common Commands
 
-These commands are planned for the future implementation. They may not work yet.
+These commands are implemented and working:
 
 ```bash
 docker compose up --build

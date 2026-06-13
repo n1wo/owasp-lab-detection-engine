@@ -13,10 +13,11 @@ combines a deliberately vulnerable Flask web app, structured JSONL security
 telemetry, a Python detection engine, and reproducible localhost demo
 workflows.
 
-The project currently covers three OWASP-oriented scenarios: it detects
+The project currently covers five OWASP-oriented scenarios: it detects
 repeated failed login attempts with `AUTH-BRUTE-FORCE-001`, SQL-injection-like
-input with `WEB-SQLI-PATTERN-001`, and XSS-like input with
-`WEB-XSS-PATTERN-001`.
+input with `WEB-SQLI-PATTERN-001`, XSS-like input with `WEB-XSS-PATTERN-001`,
+admin-panel privilege escalation with `BAC-PRIV-ESC-001`, and server-side
+request forgery against internal targets with `WEB-SSRF-INTERNAL-001`.
 
 > **Safety warning:** This project contains intentionally vulnerable examples
 > for local educational use only. Do not deploy it to the public internet and
@@ -45,9 +46,13 @@ This project demonstrates:
 - [x] Secure mode uses generic errors and simple lockout behavior
 - [x] JSONL telemetry written to `logs/application.jsonl`
 - [x] Python JSONL parser
+- [x] Admin panel with intentionally broken access control (`/dashboard`)
+- [x] Server-side fetch page for SSRF-style local learning (`/fetch`)
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] Detection rule `WEB-XSS-PATTERN-001`
+- [x] Detection rule `BAC-PRIV-ESC-001`
+- [x] Detection rule `WEB-SSRF-INTERNAL-001`
 - [x] CLI with human-readable and JSON output
 - [x] Live SOC alerts at `/soc` from local app telemetry
 - [x] Self-contained HTML findings dashboard via `--html`
@@ -70,7 +75,7 @@ flowchart LR
     A["Local Reviewer"] --> B["Flask Vulnerable App"]
     B --> C["logs/application.jsonl"]
     C --> D["Python Detection Engine"]
-    D --> E["Human/JSON Findings"]
+    D --> E["Human / JSON / HTML Findings"]
 ```
 
 ## Project Structure
@@ -78,10 +83,13 @@ flowchart LR
 ```text
 .
 |-- AGENTS.md                         # Guidance for future AI/code agents
+|-- CODE_OF_CONDUCT.md                # Community standards
+|-- CONTRIBUTING.md                   # Contribution workflow and safety rules
 |-- README.md                         # Project overview and runbook
 |-- SECURITY.md                       # Responsible-use policy
 |-- docker-compose.yml                # Local Flask app orchestration
 |-- requirements-dev.txt              # Test/runtime dependency entry point
+|-- .github/                          # CI workflow and issue/PR templates
 |-- detection-engine/                 # Python detection engine package
 |   |-- README.md
 |   `-- detection_engine/
@@ -95,7 +103,8 @@ flowchart LR
 |   `-- sample-logs.jsonl
 |-- scripts/                          # Local-only demo helpers
 |   |-- generate_login_demo.py
-|   `-- generate_sqli_demo.py
+|   |-- generate_sqli_demo.py
+|   `-- generate_xss_demo.py
 |-- tests/                            # pytest test suite
 `-- vulnerable-app/                   # Local Flask vulnerable app
     |-- Dockerfile
@@ -157,7 +166,7 @@ python -m pytest
 Current expected result:
 
 ```text
-46 passed
+82 passed
 ```
 
 On Windows/OneDrive, pytest may print cache or temp-directory warnings even
@@ -550,6 +559,10 @@ Expected finding:
   event with `signal` set to `sql_injection_like_pattern`
 - Rule: `WEB-XSS-PATTERN-001` when the log contains a `suspicious_input`
   event with `signal` set to `xss_like_pattern`
+- Rule: `BAC-PRIV-ESC-001` when the log contains an `admin_access` event with
+  `signal` set to `broken_access_control_pattern`
+- Rule: `WEB-SSRF-INTERNAL-001` when the log contains an `outbound_request`
+  event with `signal` set to `ssrf_internal_target_pattern`
 
 ## Full Demo Flow
 
@@ -609,6 +622,7 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `WEB-SQLI-PATTERN-001` | Detect SQL injection-like local lab input | `suspicious_input` event with `signal=sql_injection_like_pattern` | Medium | Implemented |
 | `WEB-XSS-PATTERN-001` | Detect XSS-like local lab input | `suspicious_input` event with `signal=xss_like_pattern` | Medium | Implemented |
 | `BAC-PRIV-ESC-001` | Detect admin-panel privilege escalation via broken access control | `admin_access` event with `signal=broken_access_control_pattern` | High | Implemented |
+| `WEB-SSRF-INTERNAL-001` | Detect server-side fetches aimed at internal targets | `outbound_request` event with `signal=ssrf_internal_target_pattern` | High | Implemented |
 
 ## Log Schema
 
@@ -639,7 +653,9 @@ Supported current `event_type` values:
 - `login_failure`
 - `account_lockout`
 - `suspicious_input`
-- `access_denied`
+- `admin_access`
+- `outbound_request`
+- `lab_mode_change`
 
 ## Running Tests
 
@@ -684,6 +700,8 @@ Completed:
 - [x] `WEB-XSS-PATTERN-001`
 - [x] broken access control scenario (admin panel)
 - [x] `BAC-PRIV-ESC-001`
+- [x] server-side request forgery scenario (internal fetch)
+- [x] `WEB-SSRF-INTERNAL-001`
 - [x] reproducible brute-force demo workflow
 - [x] reproducible SQLi-like search demo workflow
 - [x] reproducible XSS-like comment demo workflow

@@ -30,10 +30,8 @@ The current implemented scenarios are:
 - brute-forceable login in insecure mode
 - SQL injection-style suspicious search input in insecure mode
 - reflected XSS-style unsafe comment rendering in insecure mode
-
-The lab is planned to add these controlled scenarios later:
-
-- broken access control
+- broken access control on the admin panel in insecure mode
+- server-side request forgery against internal targets in insecure mode
 
 Each scenario should eventually include:
 
@@ -96,6 +94,48 @@ In `LAB_MODE=secure`, the same route has basic safer behavior:
 
 This scenario is a local telemetry and rendering demonstration only. It should
 not be used as a guide for testing third-party applications.
+
+## Current Broken Access Control Scenario
+
+In `LAB_MODE=insecure`, the local `/dashboard` admin panel trusts a
+client-supplied `role` parameter:
+
+- requesting `/dashboard?role=admin` grants the admin panel without ever
+  authenticating as the admin account
+- an `admin_access` event is logged with
+  `signal=broken_access_control_pattern` and
+  `reason=broken_access_control_role_param`
+
+In `LAB_MODE=secure`, the same route ignores the `role` parameter:
+
+- only a server-signed session role established at login authorizes the panel
+- the exploit attempt is denied with HTTP `403` and carries no exploit signal
+- legitimate admin sessions still log `admin_access`, but without the signal, so
+  the detection engine does not flag them
+
+This scenario models privilege escalation through broken access control using
+local fictional accounts only.
+
+## Current SSRF Scenario
+
+In `LAB_MODE=insecure`, the local `/fetch` route performs a simulated
+server-side fetch of any user-supplied URL:
+
+- internal targets such as loopback, private, link-local, and the cloud
+  metadata endpoint (`169.254.169.254`) are reachable
+- the simulated metadata response returns fake credentials to make the lesson
+  concrete
+- an `outbound_request` event is logged with
+  `signal=ssrf_internal_target_pattern` and `reason=fetched_internal_target`
+
+In `LAB_MODE=secure`, the same route enforces an http(s) allowlist:
+
+- requests to internal/private targets are refused with HTTP `400`
+- the attempt is still logged with the SSRF signal and
+  `reason=blocked_internal_target` so the detection engine can alert
+
+No real network request is ever made; the lab returns a canned response so the
+scenario stays deterministic and safe.
 
 ## Assumptions
 

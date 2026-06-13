@@ -12,5 +12,6 @@ production data, or logs from third-party systems.
 Current files:
 
 - `sample-logs.jsonl` - safe fictional examples for parser and detection rule
-  development, including implemented brute-force and SQLi-style signals
+  development, including implemented brute-force, SQLi-style, XSS-style,
+  broken-access-control, and SSRF signals
 - `application.jsonl` - generated locally by the vulnerable app when it runs

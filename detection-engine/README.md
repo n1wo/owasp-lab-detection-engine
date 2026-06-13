@@ -15,13 +15,14 @@ Current responsibilities:
 - evaluate brute-force login detection logic for local lab scenarios
 - evaluate SQLi-like suspicious-input detection logic for local lab scenarios
 - evaluate XSS-like suspicious-input detection logic for local lab scenarios
+- evaluate broken-access-control detection logic for local lab scenarios
+- evaluate SSRF (internal-target) detection logic for local lab scenarios
 - report findings in a clear local output format
 - report malformed JSONL lines safely without stopping valid parsing
 - ignore unknown additional log fields safely while preserving the raw event
 
 Future responsibilities:
 
-- add rules for broken-access-control lab scenarios
 - optionally export a Wazuh/SIEM-friendly format later
 
 ## Usage
@@ -56,6 +57,14 @@ It alerts when there are 5 or more failures within 5 minutes.
 
 `WEB-XSS-PATTERN-001` detects `suspicious_input` events where `signal` is
 `xss_like_pattern`.
+
+`BAC-PRIV-ESC-001` detects `admin_access` events where `signal` is
+`broken_access_control_pattern` (admin panel authorized via a client-supplied
+role parameter rather than a real admin session). Severity is High.
+
+`WEB-SSRF-INTERNAL-001` detects `outbound_request` events where `signal` is
+`ssrf_internal_target_pattern` (a server-side fetch aimed at a loopback,
+private, link-local, or otherwise internal target). Severity is High.
 
 All rules emit:
 
