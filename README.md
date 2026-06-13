@@ -712,6 +712,39 @@ Planned:
 - [x] HTML findings dashboard report (`--html`)
 - [ ] richer reporting, e.g. trends over time
 
+### OWASP Top 10:2025 Coverage
+
+The lab is organized around the [OWASP Top 10:2025](https://owasp.org/Top10/2025/).
+Note that in the 2025 edition SSRF rolled into A01 Broken Access Control, and
+SQL injection and XSS both sit under A05 Injection.
+
+Covered:
+
+- [x] A01 Broken Access Control - `BAC-PRIV-ESC-001`, `WEB-SSRF-INTERNAL-001`
+- [x] A05 Injection - `WEB-SQLI-PATTERN-001`, `WEB-XSS-PATTERN-001`
+- [x] A07 Authentication Failures - `AUTH-BRUTE-FORCE-001` (brute force only)
+
+Planned scenarios (each: vulnerable route, secure-mode comparison, JSONL signal,
+detection rule, tests, docs):
+
+- [ ] A02 Security Misconfiguration - debug tracebacks / verbose errors / default
+  creds exposure; rule `CONFIG-EXPOSURE-001` (high priority)
+- [ ] A04 Cryptographic Failures - plaintext / weakly hashed password storage vs
+  salted hashing; rule `CRYPTO-WEAK-001` (high priority)
+- [ ] A09 Security Logging & Alerting Failures - sensitive action that emits no
+  telemetry or fires no alert in insecure mode; detection gap rule `LOG-GAP-001`
+  (high priority)
+- [ ] A10 Mishandling of Exceptional Conditions - fail-open auth/validation path
+  and stack-trace leakage on error; rule `FAIL-OPEN-001` (high priority, new 2025
+  category)
+- [ ] A08 Software or Data Integrity Failures - insecure deserialization or
+  tampered signed-cookie/data trust; rule `INTEGRITY-FAILURE-001`
+- [ ] A06 Insecure Design - business-logic flaw by design, e.g. reset/transfer
+  with no identity proof or quantity/price manipulation; rule `DESIGN-LOGIC-001`
+- [ ] A03 Software Supply Chain Failures - known-bad pinned dependency or tampered
+  build artifact; static manifest/lockfile check rather than runtime telemetry
+  (lower feasibility for this log-driven lab)
+
 ## Portfolio Relevance
 
 This project demonstrates practical Python and Flask development, structured
