@@ -43,13 +43,6 @@ def test_overview_shows_demo_credentials_and_toggle(tmp_path):
     assert "lab console" in body.lower()
 
 
-def test_overview_shows_docker_requirement_banner(tmp_path):
-    body = make_app(tmp_path).test_client().get("/").get_data(as_text=True)
-
-    assert "Docker is required to run the lab app." in body
-    assert "docker compose up --build" in body
-
-
 def test_login_form_served_at_login_path(tmp_path):
     response = make_app(tmp_path).test_client().get("/login")
 

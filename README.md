@@ -124,11 +124,11 @@ flowchart LR
 
 - Python 3.10+
 - `pip`
-- Docker / Docker Compose, optional but recommended for running the Flask app
+- Docker / Docker Compose, required for the interactive Flask lab app
 - pytest, installed through `requirements-dev.txt`
 
-Docker may be unavailable in some shells. The Python test suite is the main
-validation path for this repository.
+The Python test suite can run without Docker. To use the browser-based lab
+scenarios, start the app with Docker Compose.
 
 ## Quick Start: Copy & Paste
 
@@ -181,6 +181,20 @@ when the tests pass. If that happens, run pytest with a repo-local temp folder:
 
 ```powershell
 python -m pytest --basetemp .pytest_cache\tmp
+```
+
+### Step 5: Start The Interactive Lab App
+
+Docker / Docker Compose is required for the browser-based vulnerable app:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080
 ```
 
 ## Fresh Walkthrough

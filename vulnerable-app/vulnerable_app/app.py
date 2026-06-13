@@ -1389,15 +1389,6 @@ HOME_TEMPLATE = """
       .toggle-note { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin: 0; }
       .toggle-note strong.on { color: var(--warn-text); }
       .toggle-note strong.off { color: var(--ok); }
-      .docker-banner {
-        display: flex; gap: 0.75rem; align-items: flex-start;
-        border: 1px solid rgba(34, 211, 238, 0.35); border-radius: 12px;
-        padding: 0.9rem 1rem; margin-bottom: 1.2rem;
-        background: rgba(34, 211, 238, 0.08); color: var(--text-muted);
-        font-size: 0.88rem; line-height: 1.45;
-      }
-      .docker-banner strong { color: var(--text); }
-      .docker-banner code { font-family: var(--mono); color: var(--accent); }
     </style>
   </head>
   <body>
@@ -1408,10 +1399,6 @@ HOME_TEMPLATE = """
         <p>Attack a deliberately vulnerable app in your browser, watch each action become structured
            JSONL telemetry, then run the detection engine to see the attacks surface in a SOC-style
            findings report. Everything runs locally for learning only.</p>
-      </div>
-      <div class="docker-banner">
-        <span>&#9432;</span>
-        <div><strong>Docker is required to run the lab app.</strong> Start it from the repository root with <code>docker compose up --build</code>.</div>
       </div>
 
       <div class="card">
