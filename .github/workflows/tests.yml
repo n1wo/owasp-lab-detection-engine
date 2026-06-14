@@ -39,3 +39,70 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Run end-to-end detection engine smoke test
+        run: |
+          python - <<'PYEOF'
+          import json, subprocess, sys
+
+          sys.path.insert(0, "detection-engine")
+          import detection_engine.rules as rules
+
+          expected = {
+              v for k, v in vars(rules).items()
+              if k.endswith("_RULE_ID") and isinstance(v, str)
+          }
+
+          proc = subprocess.run(
+              [sys.executable, "-m", "detection_engine",
+               "--log-file", "../logs/sample-logs.jsonl", "--json"],
+              capture_output=True, text=True, cwd="detection-engine",
+          )
+          if proc.returncode != 0:
+              print(proc.stderr, file=sys.stderr)
+              sys.exit(1)
+
+          fired = {}
+          for finding in json.loads(proc.stdout)["findings"]:
+              rid = finding["rule_id"]
+              fired[rid] = fired.get(rid, 0) + 1
+
+          errors = []
+          for rid in expected:
+              n = fired.get(rid, 0)
+              if n == 0:
+                  errors.append(f"MISSING: {rid} never fired")
+              elif n > 1:
+                  errors.append(f"DUPLICATE: {rid} fired {n}x (expected 1)")
+          for rid in fired:
+              if rid not in expected:
+                  errors.append(f"UNEXPECTED: {rid} fired but is not a known rule")
+
+          if errors:
+              print("Smoke test FAILED:\n  " + "\n  ".join(errors), file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Smoke test passed — {len(expected)} rules each fired exactly once:")
+          for rid in sorted(expected):
+              print(f"  ok {rid}")
+          PYEOF
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build vulnerable-app Docker image
+        run: docker build -f vulnerable-app/Dockerfile vulnerable-app/
