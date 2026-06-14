@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import ipaddress
@@ -9,6 +10,7 @@ import json
 import os
 import sys
 import time
+import traceback
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -40,6 +42,11 @@ WEAK_HASH_SIGNAL = "weak_password_hash_pattern"
 LOGGING_FAILURE_SIGNAL = "logging_failure_pattern"
 UNSAFE_DESERIALIZATION_SIGNAL = "unsafe_deserialization_pattern"
 BUSINESS_LOGIC_SIGNAL = "business_logic_abuse_pattern"
+FAIL_OPEN_SIGNAL = "fail_open_pattern"
+ENTITLEMENT_PLANS = {"free", "premium"}
+# A deliberately malformed "premium" token: invalid base64 (contains '.' and '-')
+# so the entitlement check raises and the fail-open path is exercised.
+ENTITLEMENT_SAMPLE_TOKEN = "premium.eyJwbGFuIjoicHJlbWl1bSJ9.t4mp3r-ed"
 PBKDF2_ITERATIONS = 200_000
 SSRF_ALLOWED_SCHEMES = {"http", "https"}
 SSRF_INTERNAL_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal"}
@@ -810,6 +817,106 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             return rendered, status_code
         return rendered
 
+    @app.get("/entitlement")
+    def entitlement_form() -> Response | str:
+        """Render the fail-open exception-handling scenario."""
+
+        return render_template_string(
+            ENTITLEMENT_TEMPLATE,
+            mode=_mode(),
+            token=ENTITLEMENT_SAMPLE_TOKEN,
+            result=None,
+            message=None,
+            error_detail=None,
+        )
+
+    @app.post("/entitlement")
+    def entitlement() -> Response | str:
+        """Verify a premium-entitlement token with mode-dependent error handling.
+
+        The entitlement check raises on any malformed or tampered token. Insecure
+        mode mishandles that exceptional condition: it swallows the error, *fails
+        open* by granting premium access anyway, and leaks the raw traceback to
+        the client. Secure mode *fails closed* — it denies access, returns a
+        generic error, and leaks nothing. Both log an ``exception_handling``
+        event; only the fail-open path carries the ``fail_open_pattern`` signal.
+        """
+
+        token = request.form.get("token", "").strip()
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+
+        try:
+            verified = _verify_entitlement(token)
+        except Exception as exc:  # noqa: BLE001 - deliberate fail-open lab demo
+            if _mode() == "insecure":
+                error_detail = traceback.format_exc()
+                _log_exception_handling_event(
+                    logger,
+                    request_id=request_id,
+                    source_ip=source_ip,
+                    status_code=200,
+                    error_type=type(exc).__name__,
+                    fail_open=True,
+                    stack_trace_leaked=True,
+                    granted=True,
+                    reason="fail_open_on_exception",
+                    signal=FAIL_OPEN_SIGNAL,
+                )
+                return render_template_string(
+                    ENTITLEMENT_TEMPLATE,
+                    mode=_mode(),
+                    token=token,
+                    result={"plan": "premium", "premium": True, "fail_open": True},
+                    message=None,
+                    error_detail=error_detail,
+                )
+
+            _log_exception_handling_event(
+                logger,
+                request_id=request_id,
+                source_ip=source_ip,
+                status_code=403,
+                error_type=type(exc).__name__,
+                fail_open=False,
+                stack_trace_leaked=False,
+                granted=False,
+                reason="fail_closed_on_exception",
+                signal=None,
+            )
+            return (
+                render_template_string(
+                    ENTITLEMENT_TEMPLATE,
+                    mode=_mode(),
+                    token=token,
+                    result=None,
+                    message="Entitlement check failed. Access denied.",
+                    error_detail=None,
+                ),
+                403,
+            )
+
+        _log_exception_handling_event(
+            logger,
+            request_id=request_id,
+            source_ip=source_ip,
+            status_code=200,
+            error_type=None,
+            fail_open=False,
+            stack_trace_leaked=False,
+            granted=verified["premium"],
+            reason="entitlement_verified",
+            signal=None,
+        )
+        return render_template_string(
+            ENTITLEMENT_TEMPLATE,
+            mode=_mode(),
+            token=token,
+            result={**verified, "fail_open": False},
+            message=None,
+            error_detail=None,
+        )
+
     @app.get("/debug")
     def debug() -> Response | str:
         """Diagnostics endpoint left enabled by an intentional misconfiguration.
@@ -1140,6 +1247,26 @@ def _format_cents(cents: int) -> str:
     return f"{cents // 100}.{cents % 100:02d}"
 
 
+def _verify_entitlement(token: str) -> dict[str, Any]:
+    """Decode and validate a premium-entitlement token.
+
+    A well-formed token is base64-encoded JSON carrying a known ``plan``. Any
+    malformed, non-JSON, or tampered token makes this raise — base64 decoding,
+    JSON parsing, and the missing/unknown ``plan`` checks all surface as
+    exceptions. Callers decide how to handle that exceptional condition; the
+    insecure route fails open, the secure route fails closed.
+    """
+
+    raw = base64.b64decode(token, validate=True)
+    claims = json.loads(raw.decode("utf-8"))
+    if not isinstance(claims, dict):
+        raise ValueError("entitlement token must decode to a JSON object")
+    plan = claims["plan"]
+    if plan not in ENTITLEMENT_PLANS:
+        raise ValueError(f"unknown entitlement plan {plan!r}")
+    return {"plan": plan, "premium": plan == "premium"}
+
+
 def _exposed_config() -> dict[str, str]:
     """Collect the sensitive configuration the insecure debug endpoint leaks.
 
@@ -1367,6 +1494,18 @@ def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
                 "Checkout submitted a total below the server-calculated minimum "
                 f"({event.get('client_total')} submitted vs "
                 f"{event.get('allowed_minimum')} minimum)."
+            ),
+        )
+    if event_type == "exception_handling" and signal == FAIL_OPEN_SIGNAL:
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Fail-open on mishandled exception",
+            rule="FAIL-OPEN-001",
+            detail=(
+                f"Entitlement check on {event.get('request_path', 'unknown path')} failed open on "
+                f"{event.get('error_type', 'an error')}, granting access and leaking error detail "
+                "(mishandling of exceptional conditions)."
             ),
         )
     return None
@@ -1607,6 +1746,38 @@ def _log_business_action_event(
     )
 
 
+def _log_exception_handling_event(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    status_code: int,
+    error_type: str | None,
+    fail_open: bool,
+    stack_trace_leaked: bool,
+    granted: bool,
+    reason: str,
+    signal: str | None,
+) -> None:
+    """Write one structured exception-handling event for fail-open detection."""
+
+    logger.write(
+        {
+            "event_type": "exception_handling",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": "anonymous",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "error_type": error_type,
+            "fail_open": fail_open,
+            "stack_trace_leaked": stack_trace_leaked,
+            "granted": granted,
+            "success": granted,
+        }
+    )
+
+
 BASE_STYLES = """
       :root {
         --bg: #0b1120;
@@ -1814,6 +1985,7 @@ NAV_SNIPPET = """
     <a href="/register">Crypto &middot; Register</a>
     <a href="/profile/import">Integrity &middot; Profile import</a>
     <a href="/checkout">Design &middot; Checkout</a>
+    <a href="/entitlement">Exceptions &middot; Entitlement</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
     <div class="labnav-group">Vulnerabilities</div>
@@ -2027,6 +2199,11 @@ HOME_TEMPLATE = """
             <div class="rule">DESIGN-LOGIC-001</div>
             <div class="name">Checkout logic abuse</div>
             <p class="desc">Submit a client-controlled final price. Insecure mode trusts it; secure mode recalculates server-side.</p>
+          </a>
+          <a class="scenario" href="/entitlement">
+            <div class="rule">FAIL-OPEN-001</div>
+            <div class="name">Mishandled exceptions</div>
+            <p class="desc">Submit a tampered entitlement token. Insecure mode fails open and leaks the traceback; secure mode fails closed.</p>
           </a>
         </div>
       </div>
@@ -2633,6 +2810,109 @@ PROFILE_IMPORT_TEMPLATE = """
       {% endif %}
     </div>
     <div class="footer">INTEGRITY-DESERIALIZE-001 &middot; logs/application.jsonl</div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
+ENTITLEMENT_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Entitlement</title>
+    <style>{styles}
+      textarea {
+        min-height: 6rem;
+        resize: vertical;
+        font-family: var(--mono);
+        line-height: 1.45;
+      }
+      .trace {
+        margin: 1rem 0 0; padding: 0.8rem 1rem;
+        font-family: var(--mono); font-size: 0.78rem; line-height: 1.5;
+        color: var(--warn-text); white-space: pre-wrap; overflow-wrap: anywhere;
+        border: 1px solid var(--border); border-radius: 8px;
+        background: rgba(251, 191, 36, 0.06);
+      }
+      .store-dump { margin: 1.2rem 0 0; padding: 0; list-style: none; }
+      .store-dump li {
+        display: flex; gap: 0.8rem; align-items: baseline;
+        font-family: var(--mono); font-size: 0.82rem;
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+        background: rgba(255, 255, 255, 0.02); overflow-wrap: anywhere;
+      }
+      .store-dump .k { color: var(--text-faint); min-width: 8rem; }
+      .store-dump .v { color: var(--accent); }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
+    <div class="card">
+      <div class="title-row">
+        <h1>Entitlement check</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A10 &middot; FAIL-OPEN-001 &middot; High</div>
+          <h3>Mishandling of exceptional conditions</h3>
+          <p>How code behaves when something goes wrong is a security decision. If an access check throws and the error is swallowed, the safe default matters: failing <em>open</em> grants access the check never approved.</p>
+          <h4>Try it</h4>
+          <p>Submit the tampered token below. The entitlement check raises while decoding it. In insecure mode the error is caught, premium access is granted anyway, and the raw traceback is shown; in secure mode the request is denied.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the exception is swallowed, the check fails open (access granted), and the stack trace leaks to the client.</div>
+            <div class="sec"><strong>Secure:</strong> the exception fails closed &mdash; access is denied with a generic error and no internal detail leaks.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>An <code>exception_handling</code> event with signal <code>fail_open_pattern</code> raises <strong>FAIL-OPEN-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
+      <p class="subtitle">Exception-handling lab &mdash; entitlement checks are logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. No entitlement is persisted &mdash; this only demonstrates fail-open error handling.</div>
+      {% if message %}<div class="notice error">&#9940;&nbsp; {{ message }}</div>{% endif %}
+      <form method="post" action="/entitlement">
+        <label>
+          Entitlement token
+          <textarea name="token" spellcheck="false">{{ token }}</textarea>
+        </label>
+        <button type="submit">Check entitlement</button>
+      </form>
+      {% if result %}
+        {% if result.fail_open %}
+        <div class="notice error" style="margin-top:1rem;">&#9940;&nbsp; The check failed open: premium access was granted despite an error. This is logged as <strong>FAIL-OPEN-001</strong>.</div>
+        {% elif result.premium %}
+        <div class="notice" style="margin-top:1rem;">&#9989;&nbsp; Premium entitlement verified from a well-formed token. No detection signal is raised.</div>
+        {% else %}
+        <div class="notice" style="margin-top:1rem;">&#9989;&nbsp; Token verified: free plan, premium access not granted. No detection signal is raised.</div>
+        {% endif %}
+        <h2>Resolved entitlement</h2>
+        <ul class="store-dump">
+          <li><span class="k">plan</span><span class="v">{{ result.plan }}</span></li>
+          <li><span class="k">premium</span><span class="v">{{ result.premium }}</span></li>
+        </ul>
+      {% endif %}
+      {% if error_detail %}
+        <h2>Leaked stack trace</h2>
+        <div class="trace">{{ error_detail }}</div>
+      {% endif %}
+    </div>
+    <div class="footer">FAIL-OPEN-001 &middot; logs/application.jsonl</div>
     {nav}
   </body>
 </html>

@@ -34,12 +34,15 @@ type → signal → rule):
 | A02 Security Misconfiguration | `/debug` | `config_exposure` | `config_exposure_pattern` | `CONFIG-EXPOSURE-001` | High |
 | A04 Cryptographic Failures | `/register` | `credential_storage` | `weak_password_hash_pattern` | `CRYPTO-WEAK-001` | High |
 | A09 Logging & Alerting Failures | `/admin/role` | `sensitive_action` | `logging_failure_pattern` | `LOG-GAP-001` | High |
+| A06 Insecure Design | `/checkout` | `business_action` | `business_logic_abuse_pattern` | `DESIGN-LOGIC-001` | High |
+| A08 Software/Data Integrity Failures | `/profile/import` | `profile_import` | `unsafe_deserialization_pattern` | `INTEGRITY-DESERIALIZE-001` | High |
+| A10 Mishandling of Exceptional Conditions | `/entitlement` | `exception_handling` | `fail_open_pattern` | `FAIL-OPEN-001` | High |
 
 Note: in OWASP 2025, SSRF rolled into A01, and SQLi/XSS sit under A05. In-app
-help popups use 2025 numbering. The full test suite is currently **105 passing**.
+help popups use 2025 numbering.
 
-Planned next (see the Roadmap in `README.md`): A10 Mishandling of Exceptional
-Conditions (`FAIL-OPEN-001`), then A08, A06, and A03.
+Planned next (see the Roadmap in `README.md`): A03 Software Supply Chain
+Failures (a static manifest/lockfile check rather than runtime telemetry).
 
 ## Repository Layout
 

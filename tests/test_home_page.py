@@ -21,7 +21,7 @@ def test_root_serves_overview_not_login_form(tmp_path):
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     # Overview content, not a login form.
-    assert "detection engineering lab" in body
+    assert "learn the OWASP Top 10" in body
     assert "How it works" in body
     assert 'action="/login"' not in body  # the login POST form is on /login now
 

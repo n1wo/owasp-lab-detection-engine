@@ -13,7 +13,7 @@ combines a deliberately vulnerable Flask web app, structured JSONL security
 telemetry, a Python detection engine, and reproducible localhost demo
 workflows.
 
-The project currently covers ten OWASP-oriented scenarios: it detects
+The project currently covers eleven OWASP-oriented scenarios: it detects
 repeated failed login attempts with `AUTH-BRUTE-FORCE-001`, SQL-injection-like
 input with `WEB-SQLI-PATTERN-001`, XSS-like input with `WEB-XSS-PATTERN-001`,
 admin-panel privilege escalation with `BAC-PRIV-ESC-001`, server-side
@@ -22,8 +22,9 @@ sensitive configuration disclosed by an exposed debug endpoint with
 `CONFIG-EXPOSURE-001`, weak password hashing at registration with
 `CRYPTO-WEAK-001`, and sensitive actions performed without an audit or alert
 trail with `LOG-GAP-001`, plus unsafe serialized profile imports with
-`INTEGRITY-DESERIALIZE-001` and checkout business-logic abuse with
-`DESIGN-LOGIC-001`.
+`INTEGRITY-DESERIALIZE-001`, checkout business-logic abuse with
+`DESIGN-LOGIC-001`, and access checks that fail open on a mishandled
+exception with `FAIL-OPEN-001`.
 
 > **Safety warning:** This project contains intentionally vulnerable examples
 > for local educational use only. Do not deploy it to the public internet and
@@ -59,6 +60,7 @@ This project demonstrates:
 - [x] Authenticated admin action with missing audit logging (`/admin/role`)
 - [x] Profile import page with unsafe object trust (`/profile/import`)
 - [x] Checkout page with client-controlled price abuse (`/checkout`)
+- [x] Entitlement page with fail-open exception handling (`/entitlement`)
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] Detection rule `WEB-XSS-PATTERN-001`
@@ -69,6 +71,7 @@ This project demonstrates:
 - [x] Detection rule `LOG-GAP-001`
 - [x] Detection rule `INTEGRITY-DESERIALIZE-001`
 - [x] Detection rule `DESIGN-LOGIC-001`
+- [x] Detection rule `FAIL-OPEN-001`
 - [x] CLI with human-readable and JSON output
 - [x] Live SOC alerts at `/soc` from local app telemetry
 - [x] Self-contained HTML findings dashboard via `--html`
@@ -185,7 +188,7 @@ python -m pytest
 Current expected result:
 
 ```text
-127 passed
+152 passed
 ```
 
 On Windows/OneDrive, pytest may print cache or temp-directory warnings even
@@ -833,13 +836,12 @@ Covered:
 - [x] A08 Software or Data Integrity Failures - `INTEGRITY-DESERIALIZE-001`
   (unsafe serialized profile import)
 - [x] A09 Security Logging & Alerting Failures - `LOG-GAP-001` (unaudited admin action)
+- [x] A10 Mishandling of Exceptional Conditions - `FAIL-OPEN-001` (entitlement check
+  fails open and leaks a stack trace on error)
 
 Planned scenarios (each: vulnerable route, secure-mode comparison, JSONL signal,
 detection rule, tests, docs):
 
-- [ ] A10 Mishandling of Exceptional Conditions - fail-open auth/validation path
-  and stack-trace leakage on error; rule `FAIL-OPEN-001` (high priority, new 2025
-  category)
 - [ ] A03 Software Supply Chain Failures - known-bad pinned dependency or tampered
   build artifact; static manifest/lockfile check rather than runtime telemetry
   (lower feasibility for this log-driven lab)

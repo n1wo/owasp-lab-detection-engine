@@ -18,6 +18,7 @@ CRYPTO_WEAK_RULE_ID = "CRYPTO-WEAK-001"
 LOGGING_FAILURE_RULE_ID = "LOG-GAP-001"
 UNSAFE_DESERIALIZATION_RULE_ID = "INTEGRITY-DESERIALIZE-001"
 BUSINESS_LOGIC_RULE_ID = "DESIGN-LOGIC-001"
+FAIL_OPEN_RULE_ID = "FAIL-OPEN-001"
 SEVERITY = "Medium"
 SEVERITY_HIGH = "High"
 FAILURE_THRESHOLD = 5
@@ -31,6 +32,7 @@ WEAK_HASH_SIGNAL = "weak_password_hash_pattern"
 LOGGING_FAILURE_SIGNAL = "logging_failure_pattern"
 UNSAFE_DESERIALIZATION_SIGNAL = "unsafe_deserialization_pattern"
 BUSINESS_LOGIC_SIGNAL = "business_logic_abuse_pattern"
+FAIL_OPEN_SIGNAL = "fail_open_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -47,6 +49,7 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
         *detect_logging_failures(events),
         *detect_unsafe_deserialization(events),
         *detect_business_logic_abuse(events),
+        *detect_fail_open(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -432,6 +435,48 @@ def detect_business_logic_abuse(events: list[LogEvent]) -> list[DetectionFinding
                     f"Business logic abuse: {action!r} on {request_path} submitted "
                     f"client-controlled total {client_total} below server-calculated "
                     f"minimum {allowed_minimum} for {event.username!r} from {event.source_ip}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_fail_open(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect access decisions that fail open when an exception is mishandled.
+
+    The vulnerable app logs an ``exception_handling`` event carrying the
+    ``fail_open_pattern`` signal whenever the entitlement check raises and
+    insecure mode swallows the error, grants access anyway, and leaks the
+    exception detail to the client. Secure mode fails closed (denies access,
+    returns a generic error, leaks nothing) and logs without the signal, so it
+    does not match.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "exception_handling":
+            continue
+        if event.raw.get("signal") != FAIL_OPEN_SIGNAL:
+            continue
+
+        request_path = str(event.raw.get("request_path") or "unknown")
+        error_type = str(event.raw.get("error_type") or "unknown")
+        leaked = bool(event.raw.get("stack_trace_leaked"))
+        leak_clause = " and leaked a stack trace" if leaked else ""
+        findings.append(
+            DetectionFinding(
+                rule_id=FAIL_OPEN_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Mishandled exceptional condition: {request_path} failed open on "
+                    f"{error_type!r}, granting access despite the error{leak_clause} "
+                    f"from {event.source_ip}"
                 ),
             )
         )
