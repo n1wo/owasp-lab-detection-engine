@@ -38,9 +38,23 @@ SSRF_SIGNAL = "ssrf_internal_target_pattern"
 CONFIG_EXPOSURE_SIGNAL = "config_exposure_pattern"
 WEAK_HASH_SIGNAL = "weak_password_hash_pattern"
 LOGGING_FAILURE_SIGNAL = "logging_failure_pattern"
+UNSAFE_DESERIALIZATION_SIGNAL = "unsafe_deserialization_pattern"
 PBKDF2_ITERATIONS = 200_000
 SSRF_ALLOWED_SCHEMES = {"http", "https"}
 SSRF_INTERNAL_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal"}
+PROFILE_ALLOWED_KEYS = {"display_name", "theme", "timezone"}
+PROFILE_ALLOWED_THEMES = {"dark", "light", "system"}
+PROFILE_ALLOWED_TIMEZONES = {"UTC", "Europe/Berlin", "America/New_York"}
+PROFILE_IMPORT_SAMPLE = json.dumps(
+    {
+        "display_name": "test-user",
+        "theme": "dark",
+        "timezone": "UTC",
+        "role": "admin",
+        "feature_flags": ["admin_panel"],
+    },
+    indent=2,
+)
 
 
 @dataclass(frozen=True)
@@ -530,6 +544,102 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             message=None,
         )
 
+    @app.get("/profile/import")
+    def profile_import_form() -> Response | str:
+        """Render the unsafe profile-import scenario."""
+
+        return render_template_string(
+            PROFILE_IMPORT_TEMPLATE,
+            mode=_mode(),
+            payload=PROFILE_IMPORT_SAMPLE,
+            result=None,
+            message=None,
+        )
+
+    @app.post("/profile/import")
+    def profile_import() -> Response | str:
+        """Import a user profile from JSON with mode-dependent validation.
+
+        Insecure mode trusts every client-supplied key from the serialized
+        profile object, including privileged fields such as ``role`` and
+        ``feature_flags``. Secure mode accepts only expected preference fields
+        and rejects privileged or unknown keys. Both paths log a
+        ``profile_import`` event; only the unsafe trusted-object path carries
+        the ``unsafe_deserialization_pattern`` signal.
+        """
+
+        payload = request.form.get("payload", "").strip()
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+        status_code = 200
+        message = None
+
+        try:
+            imported_profile = _load_profile_payload(payload)
+        except ValueError as exc:
+            _log_profile_import_event(
+                logger,
+                request_id=request_id,
+                source_ip=source_ip,
+                status_code=400,
+                imported_keys=[],
+                trusted_keys=[],
+                privileged_keys=[],
+                reason="invalid_profile_payload",
+                signal=None,
+                success=False,
+            )
+            return (
+                render_template_string(
+                    PROFILE_IMPORT_TEMPLATE,
+                    mode=_mode(),
+                    payload=payload,
+                    result=None,
+                    message=str(exc),
+                ),
+                400,
+            )
+
+        if _mode() == "secure":
+            result, message, status_code = _secure_profile_import(imported_profile)
+        else:
+            result = _insecure_profile_import(imported_profile)
+
+        privileged_keys = _privileged_profile_keys(imported_profile)
+        signal = (
+            UNSAFE_DESERIALIZATION_SIGNAL
+            if _mode() == "insecure" and privileged_keys
+            else None
+        )
+        _log_profile_import_event(
+            logger,
+            request_id=request_id,
+            source_ip=source_ip,
+            status_code=status_code,
+            imported_keys=sorted(imported_profile.keys()),
+            trusted_keys=sorted(result["profile"].keys()) if result else [],
+            privileged_keys=sorted(privileged_keys),
+            reason=(
+                "trusted_serialized_privileged_fields"
+                if signal
+                else "rejected_privileged_serialized_fields"
+                if status_code == 400
+                else "validated_profile_import"
+            ),
+            signal=signal,
+            success=status_code == 200,
+        )
+        rendered = render_template_string(
+            PROFILE_IMPORT_TEMPLATE,
+            mode=_mode(),
+            payload=payload,
+            result=result,
+            message=message,
+        )
+        if status_code != 200:
+            return rendered, status_code
+        return rendered
+
     @app.get("/debug")
     def debug() -> Response | str:
         """Diagnostics endpoint left enabled by an intentional misconfiguration.
@@ -766,6 +876,57 @@ def _store_password(password: str, mode: str) -> dict[str, Any]:
     }
 
 
+def _load_profile_payload(payload: str) -> dict[str, Any]:
+    """Parse a profile-import payload and require a JSON object."""
+
+    if not payload:
+        raise ValueError("Paste a JSON profile export to import.")
+    try:
+        imported = json.loads(payload)
+    except json.JSONDecodeError:
+        raise ValueError("Profile import must be valid JSON.") from None
+    if not isinstance(imported, dict):
+        raise ValueError("Profile import must be a JSON object.")
+    return imported
+
+
+def _privileged_profile_keys(profile: dict[str, Any]) -> set[str]:
+    """Return imported profile keys that should never be trusted from clients."""
+
+    return {key for key in profile if key not in PROFILE_ALLOWED_KEYS}
+
+
+def _insecure_profile_import(profile: dict[str, Any]) -> dict[str, Any]:
+    """Trust the full imported object, including privileged fields."""
+
+    return {
+        "profile": profile,
+        "trusted_privileged_keys": sorted(_privileged_profile_keys(profile)),
+        "accepted": True,
+    }
+
+
+def _secure_profile_import(profile: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None, int]:
+    """Validate a profile import and reject unknown or privileged fields."""
+
+    privileged_keys = _privileged_profile_keys(profile)
+    if privileged_keys:
+        keys = ", ".join(sorted(privileged_keys))
+        return None, f"Profile import rejected: unexpected privileged fields ({keys}).", 400
+
+    sanitized = {
+        "display_name": str(profile.get("display_name", "test-user"))[:80],
+        "theme": str(profile.get("theme", "system")),
+        "timezone": str(profile.get("timezone", "UTC")),
+    }
+    if sanitized["theme"] not in PROFILE_ALLOWED_THEMES:
+        sanitized["theme"] = "system"
+    if sanitized["timezone"] not in PROFILE_ALLOWED_TIMEZONES:
+        sanitized["timezone"] = "UTC"
+
+    return {"profile": sanitized, "trusted_privileged_keys": [], "accepted": True}, None, 200
+
+
 def _exposed_config() -> dict[str, str]:
     """Collect the sensitive configuration the insecure debug endpoint leaks.
 
@@ -971,6 +1132,18 @@ def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
                 "record (logging & alerting failure)."
             ),
         )
+    if event_type == "profile_import" and signal == UNSAFE_DESERIALIZATION_SIGNAL:
+        keys = ", ".join(event.get("privileged_keys") or []) or "unknown"
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Privileged fields trusted from profile import",
+            rule="INTEGRITY-DESERIALIZE-001",
+            detail=(
+                f"Serialized profile import trusted privileged client-controlled fields "
+                f"({keys}) on {event.get('request_path', 'unknown path')}."
+            ),
+        )
     return None
 
 
@@ -1136,6 +1309,37 @@ def _log_outbound_request_event(
             "signal": signal,
             "target_url": target_url,
             "target_host": target_host,
+            "success": success,
+        }
+    )
+
+
+def _log_profile_import_event(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    status_code: int,
+    imported_keys: list[str],
+    trusted_keys: list[str],
+    privileged_keys: list[str],
+    reason: str,
+    signal: str | None,
+    success: bool,
+) -> None:
+    """Write one structured profile-import event for unsafe object trust."""
+
+    logger.write(
+        {
+            "event_type": "profile_import",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": "test-user",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "imported_keys": imported_keys,
+            "trusted_keys": trusted_keys,
+            "privileged_keys": privileged_keys,
             "success": success,
         }
     )
@@ -1346,6 +1550,7 @@ NAV_SNIPPET = """
     <a href="/fetch">SSRF &middot; Fetch</a>
     <a href="/debug">Misconfig &middot; Debug</a>
     <a href="/register">Crypto &middot; Register</a>
+    <a href="/profile/import">Integrity &middot; Profile import</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
     <div class="labnav-group">Vulnerabilities</div>
@@ -1548,6 +1753,11 @@ HOME_TEMPLATE = """
             <div class="rule">LOG-GAP-001</div>
             <div class="name">Logging &amp; alerting failures</div>
             <p class="desc">Change a user's role. Insecure mode leaves no audit or alert record; secure mode audits and alerts on the action.</p>
+          </a>
+          <a class="scenario" href="/profile/import">
+            <div class="rule">INTEGRITY-DESERIALIZE-001</div>
+            <div class="name">Unsafe profile import</div>
+            <p class="desc">Import a serialized profile. Insecure mode trusts privileged fields; secure mode allows only safe preferences.</p>
           </a>
         </div>
       </div>
@@ -2065,6 +2275,95 @@ REGISTER_TEMPLATE = """
       {% endif %}
     </div>
     <div class="footer">CRYPTO-WEAK-001 &middot; logs/application.jsonl</div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
+PROFILE_IMPORT_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Profile Import</title>
+    <style>{styles}
+      textarea {
+        min-height: 12rem;
+        resize: vertical;
+        font-family: var(--mono);
+        line-height: 1.45;
+      }
+      .store-dump { margin: 1.2rem 0 0; padding: 0; list-style: none; }
+      .store-dump li {
+        display: flex; gap: 0.8rem; align-items: baseline;
+        font-family: var(--mono); font-size: 0.82rem;
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+        background: rgba(255, 255, 255, 0.02); overflow-wrap: anywhere;
+      }
+      .store-dump .k { color: var(--text-faint); min-width: 9rem; }
+      .store-dump .v { color: var(--accent); }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
+    <div class="card">
+      <div class="title-row">
+        <h1>Profile import</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A08 &middot; INTEGRITY-DESERIALIZE-001 &middot; High</div>
+          <h3>Software and data integrity failures</h3>
+          <p>Importing a serialized object is a trust-boundary decision. If the server accepts every field the client supplies, a harmless preferences import can become a privilege change.</p>
+          <h4>Try it</h4>
+          <p>Submit the sample JSON with <code>role</code> and <code>feature_flags</code>. In insecure mode those fields are trusted; in secure mode the import is rejected.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the full imported object is trusted, including privileged fields controlled by the client.</div>
+            <div class="sec"><strong>Secure:</strong> only expected preference fields are accepted; privileged or unknown keys are rejected.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>A <code>profile_import</code> event with signal <code>unsafe_deserialization_pattern</code> raises <strong>INTEGRITY-DESERIALIZE-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
+      <p class="subtitle">Object-import lab &mdash; serialized profile imports are logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. No profile is persisted &mdash; this only demonstrates unsafe object trust.</div>
+      {% if message %}<div class="notice error">&#9940;&nbsp; {{ message }}</div>{% endif %}
+      <form method="post" action="/profile/import">
+        <label>
+          Serialized profile JSON
+          <textarea name="payload" spellcheck="false">{{ payload }}</textarea>
+        </label>
+        <button type="submit">Import profile</button>
+      </form>
+      {% if result %}
+        {% if result.trusted_privileged_keys %}
+        <div class="notice error" style="margin-top:1rem;">&#9940;&nbsp; Privileged client-controlled fields were trusted. This is logged as <strong>INTEGRITY-DESERIALIZE-001</strong>.</div>
+        {% else %}
+        <div class="notice" style="margin-top:1rem;">&#9989;&nbsp; Profile import accepted after allowlist validation. No detection signal is raised.</div>
+        {% endif %}
+        <h2>Trusted profile</h2>
+        <ul class="store-dump">
+          {% for key, value in result.profile.items() %}<li><span class="k">{{ key }}</span><span class="v">{{ value }}</span></li>{% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+    <div class="footer">INTEGRITY-DESERIALIZE-001 &middot; logs/application.jsonl</div>
     {nav}
   </body>
 </html>

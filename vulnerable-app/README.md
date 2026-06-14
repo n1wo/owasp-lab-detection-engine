@@ -21,6 +21,7 @@ publicly.
 - debug endpoint at `/debug` that leaks config in insecure mode (misconfiguration)
 - registration page at `/register` with weak vs salted password hashing
 - sensitive admin action at `/admin/role` with mode-dependent audit logging
+- profile import page at `/profile/import` with unsafe serialized object trust
 - live SOC alerts page at `/soc`
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
@@ -122,6 +123,18 @@ Sensitive admin actions use `event_type=sensitive_action` and include:
 | `audit_logged` / `alerted` | Whether an audit record and alert were produced |
 | `reason` | `audit_logging_disabled` or `audit_logged` |
 
+## Profile Import Telemetry Schema
+
+Serialized profile imports use `event_type=profile_import` and include:
+
+| Field | Description |
+| --- | --- |
+| `signal` | `unsafe_deserialization_pattern` when privileged imported fields were trusted, otherwise `null` |
+| `imported_keys` | Keys supplied in the serialized JSON profile |
+| `trusted_keys` | Keys accepted into the trusted profile object |
+| `privileged_keys` | Client-controlled keys that should not be trusted, such as `role` |
+| `reason` | `trusted_serialized_privileged_fields`, `rejected_privileged_serialized_fields`, `validated_profile_import`, or `invalid_profile_payload` |
+
 ## Live SOC Alerts
 
 The `/soc` route reads the local JSONL log directly when no generated
@@ -137,6 +150,7 @@ The `/soc` route reads the local JSONL log directly when no generated
 - sensitive configuration exposed by the debug endpoint (misconfiguration)
 - passwords stored with weak hashing at registration (cryptographic failure)
 - sensitive admin actions performed without an audit trail (logging failure)
+- privileged fields trusted from serialized profile imports (software/data integrity failure)
 
 ## Local Commands
 
@@ -176,5 +190,5 @@ broken access control flow on the `/dashboard` admin panel, an SSRF-style
 server-side fetch flow on `/fetch`, a security misconfiguration flow on the
 `/debug` endpoint, a cryptographic failure flow on the `/register` endpoint, and
 a logging & alerting failure flow on the `/admin/role` action, all in insecure
-mode. Future scenarios should keep vulnerable and secure behavior clearly
-separated.
+mode, and an unsafe serialized profile import flow on `/profile/import`.
+Future scenarios should keep vulnerable and secure behavior clearly separated.

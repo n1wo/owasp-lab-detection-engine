@@ -86,6 +86,70 @@ python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
+## Unsafe Profile Import Scenario
+
+This scenario has no demo script. It is driven manually against the local
+`/profile/import` route, which imports a serialized JSON profile object.
+
+In insecure mode the route trusts every field in the imported object, including
+privileged fields such as `role` and `feature_flags`. In secure mode the same
+payload is rejected unless it contains only allowlisted preference fields.
+
+### Logs Generated
+
+The app writes a `profile_import` event to:
+
+```text
+logs/application.jsonl
+```
+
+The profile-import event includes:
+
+- `event_type`: `profile_import`
+- `signal`: `unsafe_deserialization_pattern` (insecure exploit) or absent
+- `request_path`: `/profile/import`
+- `imported_keys`, `trusted_keys`, and `privileged_keys`
+- `reason`: `trusted_serialized_privileged_fields`,
+  `rejected_privileged_serialized_fields`, or `validated_profile_import`
+- `lab_mode`
+
+### Why The Rule Triggers
+
+`INTEGRITY-DESERIALIZE-001` triggers when the detection engine sees a
+`profile_import` event with `signal` set to
+`unsafe_deserialization_pattern`. Rejected secure-mode imports carry no signal
+and do not match.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `INTEGRITY-DESERIALIZE-001`
+- `severity`: `High`
+- `source_ip`
+- `username`: `test-user`
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app, then submit a profile containing privileged fields:
+
+```bash
+docker compose up --build
+curl -X POST --data-urlencode 'payload={"display_name":"test-user","theme":"dark","timezone":"UTC","role":"admin","feature_flags":["admin_panel"]}' "http://127.0.0.1:8080/profile/import"
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
 ## SQLi-Style Search Scenario
 
 The SQLi-style demo sends one local search request to `/search` with a
