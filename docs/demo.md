@@ -473,8 +473,9 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 
 ## Security Logging & Alerting Failures Scenario
 
-This scenario has no demo script. It is driven manually against the local
-`/admin/role` route, a sensitive privilege change that should always be audited.
+This scenario can be driven by the included demo script or manually against the
+local `/admin/role` route, a sensitive privilege change that should always be
+audited.
 
 In insecure mode the role change is performed with no audit or alert record. In
 secure mode the same action writes a full audit record and is marked alerted. No
@@ -525,6 +526,12 @@ Start the local app, then perform an unaudited role change:
 
 ```bash
 docker compose up --build
+python scripts/generate_logging_demo.py
+```
+
+Or trigger it directly with curl:
+
+```bash
 curl -X POST -d "user=test-user&role=admin" "http://127.0.0.1:8080/admin/role"
 ```
 

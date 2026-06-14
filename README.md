@@ -114,7 +114,8 @@ flowchart LR
 |-- scripts/                          # Local-only demo helpers
 |   |-- generate_login_demo.py
 |   |-- generate_sqli_demo.py
-|   `-- generate_xss_demo.py
+|   |-- generate_xss_demo.py
+|   `-- generate_logging_demo.py
 |-- tests/                            # pytest test suite
 `-- vulnerable-app/                   # Local Flask vulnerable app
     |-- Dockerfile
@@ -522,6 +523,19 @@ The XSS demo script:
 - writes `suspicious_input` telemetry to `logs/application.jsonl`
 - is designed to trigger `WEB-XSS-PATTERN-001`
 
+Generate logging-failure demo activity:
+
+```bash
+python scripts/generate_logging_demo.py
+```
+
+The logging demo script:
+
+- only targets `localhost` / `127.0.0.1`
+- sends one admin role-change POST request to `/admin/role`
+- writes `sensitive_action` telemetry to `logs/application.jsonl`
+- is designed to trigger `LOG-GAP-001`
+
 ## Inspect Generated Logs
 
 macOS/Linux:
@@ -615,6 +629,7 @@ source .venv/bin/activate
 python scripts/generate_login_demo.py
 python scripts/generate_sqli_demo.py
 python scripts/generate_xss_demo.py
+python scripts/generate_logging_demo.py
 cd detection-engine
 python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
@@ -639,6 +654,7 @@ In a second PowerShell terminal, from the repository root:
 python scripts/generate_login_demo.py
 python scripts/generate_sqli_demo.py
 python scripts/generate_xss_demo.py
+python scripts/generate_logging_demo.py
 cd detection-engine
 python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
