@@ -119,6 +119,7 @@ Sensitive admin actions use `event_type=sensitive_action` and include:
 | --- | --- |
 | `signal` | `logging_failure_pattern` when the action was unaudited, otherwise `null` |
 | `action` | The sensitive operation, currently `role_change` |
+| `username` | Authenticated admin actor that performed the action |
 | `target_user` | The account the action affected |
 | `new_role` | The role applied |
 | `audit_logged` / `alerted` | Whether an audit record and alert were produced |
@@ -200,13 +201,17 @@ admin / admin-password
 
 ## Boundary
 
+The lab console mode switch is protected with a session-bound form token so
+other local browser contexts cannot flip `LAB_MODE` with a bare cross-site POST.
+
 The current vulnerable scenarios are a brute-forceable login flow, a SQLi-style
 suspicious search input flow, an XSS-style suspicious comment rendering flow, a
 broken access control flow on the `/dashboard` admin panel, an SSRF-style
 server-side fetch flow on `/fetch`, a security misconfiguration flow on the
 `/debug` endpoint, a cryptographic failure flow on the `/register` endpoint, and
-a logging & alerting failure flow on the `/admin/role` action, all in insecure
-mode, and an unsafe serialized profile import flow on `/profile/import`.
+a logging & alerting failure flow on the authenticated `/admin/role` action, all
+in insecure mode, and an unsafe serialized profile import flow on
+`/profile/import`.
 The checkout flow on `/checkout` demonstrates client-controlled price abuse in
 insecure mode. Future scenarios should keep vulnerable and secure behavior
 clearly separated.

@@ -114,6 +114,41 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
         return app.config["LAB_MODE"]
 
+    def _current_actor() -> tuple[str, str]:
+        """Return the authenticated lab actor from the signed Flask session."""
+
+        username = str(session.get("username") or "anonymous")
+        role = str(session.get("role") or "anonymous")
+        return username, role
+
+    def _is_admin_session() -> bool:
+        """Return whether the current signed session belongs to an admin user."""
+
+        _, role = _current_actor()
+        return role == "admin"
+
+    def _lab_mode_csrf_token() -> str:
+        """Return a session-bound token for the local lab mode toggle form."""
+
+        token = session.get("lab_mode_csrf_token")
+        if not token:
+            token = str(uuid.uuid4())
+            session["lab_mode_csrf_token"] = token
+        return str(token)
+
+    def _valid_lab_mode_csrf_token() -> bool:
+        """Validate the submitted local lab mode toggle token."""
+
+        expected = session.get("lab_mode_csrf_token")
+        submitted = request.form.get("csrf_token", "")
+        return bool(expected and hmac.compare_digest(str(expected), submitted))
+
+    @app.context_processor
+    def inject_lab_helpers() -> dict[str, Any]:
+        """Expose small lab helpers to every inline template."""
+
+        return {"lab_mode_csrf_token": _lab_mode_csrf_token}
+
     @app.get("/")
     def index() -> Response | str:
         """Render the lab overview / landing page."""
@@ -203,14 +238,21 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         without ever authenticating as the admin account.
         """
 
-        username = request.args.get("username") or session.get("username") or "guest"
-        session_role = session.get("role", "anonymous")
+        actor_username, session_role = _current_actor()
         claimed_role = request.args.get("role", "")
         request_id = str(uuid.uuid4())
 
         session_is_admin = session_role == "admin"
         param_is_admin = _mode() == "insecure" and claimed_role == "admin"
         is_admin = session_is_admin or param_is_admin
+        exploited = param_is_admin and not session_is_admin
+        username = (
+            request.args.get("username", "").strip()
+            if exploited and request.args.get("username", "").strip()
+            else actor_username
+            if actor_username != "anonymous"
+            else "guest"
+        )
 
         if not is_admin:
             _log_admin_access(
@@ -225,7 +267,6 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             )
             return render_template_string(ACCESS_DENIED_TEMPLATE, mode=_mode(), role=session_role), 403
 
-        exploited = param_is_admin and not session_is_admin
         _log_admin_access(
             logger,
             request_id=request_id,
@@ -250,6 +291,9 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.post("/lab/mode")
     def toggle_mode() -> Response:
         """Toggle the runtime lab mode between insecure and secure."""
+
+        if not _valid_lab_mode_csrf_token():
+            return Response("Invalid lab mode toggle token.", status=400, mimetype="text/plain")
 
         previous = _mode()
         new_mode = "secure" if previous == "insecure" else "insecure"
@@ -449,6 +493,9 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def role_form() -> Response | str:
         """Render the sensitive admin role-change form."""
 
+        _, role = _current_actor()
+        if not _is_admin_session():
+            return render_template_string(ACCESS_DENIED_TEMPLATE, mode=_mode(), role=role), 403
         return render_template_string(ROLE_TEMPLATE, mode=_mode(), result=None)
 
     @app.post("/admin/role")
@@ -469,12 +516,18 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         new_role = request.form.get("role", "").strip() or "admin"
         source_ip = _source_ip()
         request_id = str(uuid.uuid4())
+        actor_username, role = _current_actor()
+
+        if not _is_admin_session():
+            return render_template_string(ACCESS_DENIED_TEMPLATE, mode=_mode(), role=role), 403
+
         audited = _mode() == "secure"
 
         _log_sensitive_action_event(
             logger,
             request_id=request_id,
             source_ip=source_ip,
+            actor_username=actor_username,
             action="role_change",
             target_user=target_user,
             new_role=new_role,
@@ -1374,6 +1427,7 @@ def _log_sensitive_action_event(
     *,
     request_id: str,
     source_ip: str,
+    actor_username: str,
     action: str,
     target_user: str,
     new_role: str,
@@ -1388,7 +1442,7 @@ def _log_sensitive_action_event(
         {
             "event_type": "sensitive_action",
             "source_ip": source_ip or "127.0.0.1",
-            "username": "admin",
+            "username": actor_username or "anonymous",
             **_common_event_fields(status_code, request_id),
             "reason": reason,
             "signal": signal,
@@ -1765,6 +1819,7 @@ NAV_SNIPPET = """
     <div class="labnav-group">Vulnerabilities</div>
     <form method="post" action="/lab/mode">
       <input type="hidden" name="next" value="{{ request.path }}">
+      <input type="hidden" name="csrf_token" value="{{ lab_mode_csrf_token() }}">
       <button type="submit" class="labnav-switch state-{{ mode }}"
               title="Toggle between insecure and secure mode">
         <span class="labnav-switch-track"><span class="labnav-switch-dot"></span></span>

@@ -603,8 +603,9 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 
 ## Security Logging & Alerting Failures Scenario
 
-This scenario has no demo script. It is driven manually against the local
-`/admin/role` route, a sensitive privilege change that should always be audited.
+This scenario has no demo script. It is driven manually as the fictional local
+admin account against the `/admin/role` route, a sensitive privilege change
+that should always be audited.
 
 In insecure mode the role change is performed with no audit or alert record. In
 secure mode the same action writes a full audit record and is marked alerted. No
@@ -624,6 +625,7 @@ The sensitive-action event includes:
 - `signal`: `logging_failure_pattern` (insecure) or absent (secure)
 - `request_path`: `/admin/role`
 - `action`: `role_change`
+- `username`: the authenticated admin actor
 - `target_user` and `new_role`
 - `audit_logged` / `alerted`: `false` (insecure) or `true` (secure)
 - `reason`: `audit_logging_disabled` or `audit_logged`
@@ -651,11 +653,17 @@ The detection engine should emit a finding containing:
 
 ### Commands
 
-Start the local app, then perform an unaudited role change:
+Start the local app, sign in as the fictional admin, then perform an unaudited
+role change:
 
 ```bash
 docker compose up --build
-curl -X POST -d "user=test-user&role=admin" "http://127.0.0.1:8080/admin/role"
+curl -c /tmp/owasp-lab-cookies -X POST \
+  -d "username=admin&password=admin-password" \
+  "http://127.0.0.1:8080/login"
+curl -b /tmp/owasp-lab-cookies -X POST \
+  -d "user=test-user&role=admin" \
+  "http://127.0.0.1:8080/admin/role"
 ```
 
 Run the detection engine:

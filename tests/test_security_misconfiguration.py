@@ -1,6 +1,7 @@
 """Tests for the security misconfiguration debug-endpoint scenario."""
 
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,13 @@ def read_jsonl(path):
     if not Path(path).exists():
         return []
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def lab_mode_csrf_token(client, path="/"):
+    html = client.get(path).get_data(as_text=True)
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match is not None
+    return match.group(1)
 
 
 def make_event(raw):
@@ -85,7 +93,8 @@ def test_debug_endpoint_uses_runtime_mode_after_toggle(tmp_path):
     client = make_app(tmp_path, mode="insecure").test_client()
     assert client.get("/debug").status_code == 200
 
-    client.post("/lab/mode", data={"next": "/debug"})
+    token = lab_mode_csrf_token(client)
+    client.post("/lab/mode", data={"next": "/debug", "csrf_token": token})
 
     assert client.get("/debug").status_code == 404
 

@@ -56,7 +56,7 @@ This project demonstrates:
 - [x] Server-side fetch page for SSRF-style local learning (`/fetch`)
 - [x] Debug endpoint that leaks config in insecure mode (`/debug`)
 - [x] Registration page with weak vs salted password hashing (`/register`)
-- [x] Sensitive admin action with missing audit logging (`/admin/role`)
+- [x] Authenticated admin action with missing audit logging (`/admin/role`)
 - [x] Profile import page with unsafe object trust (`/profile/import`)
 - [x] Checkout page with client-controlled price abuse (`/checkout`)
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
@@ -597,8 +597,8 @@ Expected finding:
   with `signal` set to `config_exposure_pattern`
 - Rule: `CRYPTO-WEAK-001` when the log contains a `credential_storage` event
   with `signal` set to `weak_password_hash_pattern`
-- Rule: `LOG-GAP-001` when the log contains a `sensitive_action` event with
-  `signal` set to `logging_failure_pattern`
+- Rule: `LOG-GAP-001` when the log contains an authenticated
+  `sensitive_action` event with `signal` set to `logging_failure_pattern`
 - Rule: `INTEGRITY-DESERIALIZE-001` when the log contains a `profile_import`
   event with `signal` set to `unsafe_deserialization_pattern`
 - Rule: `DESIGN-LOGIC-001` when the log contains a `business_action` event with

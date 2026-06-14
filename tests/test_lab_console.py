@@ -1,6 +1,7 @@
 """Tests for the floating lab console: nav, mode toggle, and /soc route."""
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -20,6 +21,15 @@ def make_app(tmp_path, mode="insecure"):
 
 def read_jsonl(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def lab_mode_csrf_token(client, path="/"):
+    """Render a lab page and extract the session-bound mode-toggle token."""
+
+    html = client.get(path).get_data(as_text=True)
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match is not None
+    return match.group(1)
 
 
 def test_nav_console_present_on_all_pages(tmp_path):
@@ -96,7 +106,8 @@ def test_mode_toggle_switches_mode_and_logs_event(tmp_path):
 
     assert client.get("/health").get_json()["mode"] == "insecure"
 
-    response = client.post("/lab/mode", data={"next": "/search"})
+    token = lab_mode_csrf_token(client)
+    response = client.post("/lab/mode", data={"next": "/search", "csrf_token": token})
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/search")
     assert client.get("/health").get_json()["mode"] == "secure"
@@ -105,7 +116,8 @@ def test_mode_toggle_switches_mode_and_logs_event(tmp_path):
     assert events[-1]["event_type"] == "lab_mode_change"
     assert "insecure to secure" in events[-1]["reason"]
 
-    client.post("/lab/mode")
+    token = lab_mode_csrf_token(client)
+    client.post("/lab/mode", data={"csrf_token": token})
     assert client.get("/health").get_json()["mode"] == "insecure"
 
 
@@ -115,7 +127,8 @@ def test_mode_toggle_changes_login_behavior_at_runtime(tmp_path):
     insecure = client.post("/login", data={"username": "ghost", "password": "x"})
     assert b"Unknown user." in insecure.data
 
-    client.post("/lab/mode")
+    token = lab_mode_csrf_token(client)
+    client.post("/lab/mode", data={"csrf_token": token})
 
     secure = client.post("/login", data={"username": "ghost", "password": "x"})
     assert b"Invalid username or password." in secure.data
@@ -130,7 +143,8 @@ def test_mode_toggle_changes_xss_comment_behavior_at_runtime(tmp_path):
     assert insecure.status_code == 200
     assert b"<script>alert(1)</script>" in insecure.data
 
-    client.post("/lab/mode")
+    token = lab_mode_csrf_token(client)
+    client.post("/lab/mode", data={"csrf_token": token})
 
     secure = client.post("/comment", data=payload)
     assert secure.status_code == 400
@@ -142,9 +156,33 @@ def test_mode_toggle_rejects_unsafe_redirect_targets(tmp_path):
     client = make_app(tmp_path).test_client()
 
     for unsafe in ("https://evil.example", "//evil.example"):
-        response = client.post("/lab/mode", data={"next": unsafe})
+        token = lab_mode_csrf_token(client)
+        response = client.post("/lab/mode", data={"next": unsafe, "csrf_token": token})
         assert response.status_code == 302
         assert "evil.example" not in response.headers["Location"]
+
+
+def test_mode_toggle_rejects_missing_csrf_token(tmp_path):
+    client = make_app(tmp_path).test_client()
+
+    client.get("/")
+    response = client.post("/lab/mode", data={"next": "/search"})
+
+    assert response.status_code == 400
+    assert client.get("/health").get_json()["mode"] == "insecure"
+
+
+def test_mode_toggle_rejects_invalid_csrf_token(tmp_path):
+    client = make_app(tmp_path).test_client()
+
+    client.get("/")
+    response = client.post(
+        "/lab/mode",
+        data={"next": "/search", "csrf_token": "not-the-session-token"},
+    )
+
+    assert response.status_code == 400
+    assert client.get("/health").get_json()["mode"] == "insecure"
 
 
 def test_soc_route_shows_live_empty_state_when_report_missing(tmp_path):

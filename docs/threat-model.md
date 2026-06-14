@@ -184,18 +184,21 @@ be stored. All values are fictional and local to this lab.
 
 ## Current Security Logging & Alerting Failures Scenario
 
-In `LAB_MODE=insecure`, the local `/admin/role` route performs a sensitive
-privilege change without leaving an audit or alert trail:
+In `LAB_MODE=insecure`, an authenticated admin can use the local
+`/admin/role` route to perform a sensitive privilege change without leaving an
+audit or alert trail:
 
 - the role change is applied, but the app's own auditing and alerting are off
 - a `sensitive_action` event is logged with `signal=logging_failure_pattern`,
-  `reason=audit_logging_disabled`, and `audit_logged`/`alerted` set to false
+  `reason=audit_logging_disabled`, `username` set to the acting admin, and
+  `audit_logged`/`alerted` set to false
 
 In `LAB_MODE=secure`, the same action is fully recorded:
 
 - the change writes a complete audit record and is marked alerted
 - the event is logged with `reason=audit_logged` and no signal, so an audited
   action is not flagged
+- unauthenticated and non-admin requests to the route are denied
 
 This scenario models how missing audit logging and alerting let privileged
 actions go unseen by an application's own monitoring; the external detection

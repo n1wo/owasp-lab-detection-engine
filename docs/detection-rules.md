@@ -396,13 +396,14 @@ Input events:
 - `request_path` identifies the local route, currently `/admin/role`
 - `action` names the sensitive operation (e.g. `role_change`)
 - `target_user` identifies the account the action affected
+- `username` identifies the authenticated admin actor
 - `audit_logged` / `alerted` indicate the (failed) audit posture
 - `timestamp` is an ISO-8601 timestamp
 
 Vulnerable-mode behavior:
 
-- `/admin/role` performs the role change but its own auditing and alerting are
-  off; no audit/alert trail is produced
+- an authenticated admin uses `/admin/role` to perform the role change, but the
+  app's own auditing and alerting are off; no audit/alert trail is produced
 - the app logs `reason` as `audit_logging_disabled` with the failure signal
 
 Secure-mode behavior:
@@ -410,6 +411,7 @@ Secure-mode behavior:
 - `/admin/role` writes a full audit record and marks the action alerted
 - the app logs `reason` as `audit_logged` and carries no signal, so an audited
   action is not flagged
+- unauthenticated and non-admin requests are denied before the sensitive action
 
 Matching logic:
 

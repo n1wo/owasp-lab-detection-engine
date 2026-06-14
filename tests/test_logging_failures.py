@@ -27,6 +27,16 @@ def read_jsonl(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
+def login_admin(client):
+    response = client.post("/login", data={"username": "admin", "password": "admin-password"})
+    assert response.status_code == 302
+
+
+def login_regular_user(client):
+    response = client.post("/login", data={"username": "test-user", "password": "lab-password"})
+    assert response.status_code == 302
+
+
 def make_event(raw):
     return LogEvent(
         timestamp=datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc),
@@ -43,8 +53,10 @@ def make_event(raw):
 def test_insecure_role_change_is_unaudited(tmp_path):
     log_file = tmp_path / "app.jsonl"
     app = create_app({"LAB_MODE": "insecure", "LAB_LOG_FILE": log_file})
+    client = app.test_client()
+    login_admin(client)
 
-    response = app.test_client().post("/admin/role", data={"user": "test-user", "role": "admin"})
+    response = client.post("/admin/role", data={"user": "test-user", "role": "admin"})
 
     assert response.status_code == 200
     assert b"no audit or alert record" in response.data
@@ -57,13 +69,16 @@ def test_insecure_role_change_is_unaudited(tmp_path):
     assert event["alerted"] is False
     assert event["action"] == "role_change"
     assert event["target_user"] == "test-user"
+    assert event["username"] == "admin"
 
 
 def test_secure_role_change_is_audited(tmp_path):
     log_file = tmp_path / "app.jsonl"
     app = create_app({"LAB_MODE": "secure", "LAB_LOG_FILE": log_file})
+    client = app.test_client()
+    login_admin(client)
 
-    response = app.test_client().post("/admin/role", data={"user": "test-user", "role": "admin"})
+    response = client.post("/admin/role", data={"user": "test-user", "role": "admin"})
 
     assert response.status_code == 200
     assert b"audited and alerted" in response.data
@@ -74,12 +89,48 @@ def test_secure_role_change_is_audited(tmp_path):
     assert event["reason"] == "audit_logged"
     assert event["audit_logged"] is True
     assert event["alerted"] is True
+    assert event["username"] == "admin"
+
+
+def test_anonymous_role_change_is_denied_in_both_modes(tmp_path):
+    for mode in ("insecure", "secure"):
+        log_file = tmp_path / f"{mode}.jsonl"
+        client = create_app({"LAB_MODE": mode, "LAB_LOG_FILE": log_file}).test_client()
+
+        response = client.post("/admin/role", data={"user": "test-user", "role": "admin"})
+
+        assert response.status_code == 403
+        assert b"Access denied" in response.data
+        assert read_jsonl(log_file) == []
+
+
+def test_regular_user_role_change_is_denied(tmp_path):
+    log_file = tmp_path / "app.jsonl"
+    client = create_app({"LAB_MODE": "secure", "LAB_LOG_FILE": log_file}).test_client()
+    login_regular_user(client)
+
+    response = client.post("/admin/role", data={"user": "test-user", "role": "admin"})
+
+    assert response.status_code == 403
+    assert b"Access denied" in response.data
+    assert not any(event["event_type"] == "sensitive_action" for event in read_jsonl(log_file))
 
 
 def test_role_form_renders(tmp_path):
-    response = make_app(tmp_path).test_client().get("/admin/role")
+    client = make_app(tmp_path).test_client()
+    login_admin(client)
+
+    response = client.get("/admin/role")
+
     assert response.status_code == 200
     assert b"Admin role change" in response.data
+
+
+def test_role_form_requires_admin_session(tmp_path):
+    response = make_app(tmp_path).test_client().get("/admin/role")
+
+    assert response.status_code == 403
+    assert b"Access denied" in response.data
 
 
 def test_home_page_lists_logging_scenario(tmp_path):
