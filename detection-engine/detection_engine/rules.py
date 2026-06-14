@@ -15,6 +15,7 @@ BROKEN_ACCESS_RULE_ID = "BAC-PRIV-ESC-001"
 SSRF_RULE_ID = "WEB-SSRF-INTERNAL-001"
 CONFIG_EXPOSURE_RULE_ID = "CONFIG-EXPOSURE-001"
 CRYPTO_WEAK_RULE_ID = "CRYPTO-WEAK-001"
+LOGGING_FAILURE_RULE_ID = "LOG-GAP-001"
 SEVERITY = "Medium"
 SEVERITY_HIGH = "High"
 FAILURE_THRESHOLD = 5
@@ -25,6 +26,7 @@ BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
 SSRF_SIGNAL = "ssrf_internal_target_pattern"
 CONFIG_EXPOSURE_SIGNAL = "config_exposure_pattern"
 WEAK_HASH_SIGNAL = "weak_password_hash_pattern"
+LOGGING_FAILURE_SIGNAL = "logging_failure_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -38,6 +40,7 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
         *detect_ssrf_patterns(events),
         *detect_config_exposure(events),
         *detect_weak_crypto(events),
+        *detect_logging_failures(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -297,6 +300,48 @@ def detect_weak_crypto(events: list[LogEvent]) -> list[DetectionFinding]:
                 reason=(
                     f"Cryptographic failure: password for {event.username!r} stored with weak "
                     f"algorithm {algorithm!r} (unsalted) from {event.source_ip}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_logging_failures(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect sensitive actions performed without an audit or alert record.
+
+    The vulnerable app logs a ``sensitive_action`` event carrying the
+    ``logging_failure_pattern`` signal whenever a privileged action (such as an
+    admin role change) is performed while its own audit logging and alerting are
+    disabled. The action is recorded operationally, but no audit/alert trail is
+    produced, so the app's monitoring stays silent. The external detection
+    engine flags each such gap. Audited actions log without the signal and do
+    not match.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "sensitive_action":
+            continue
+        if event.raw.get("signal") != LOGGING_FAILURE_SIGNAL:
+            continue
+
+        action = str(event.raw.get("action") or "unknown")
+        target_user = str(event.raw.get("target_user") or "unknown")
+        request_path = str(event.raw.get("request_path") or "unknown")
+        findings.append(
+            DetectionFinding(
+                rule_id=LOGGING_FAILURE_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Logging & alerting failure: sensitive action {action!r} on {target_user!r} "
+                    f"via {request_path} left no audit or alert record (actor {event.username!r} "
+                    f"from {event.source_ip})"
                 ),
             )
         )

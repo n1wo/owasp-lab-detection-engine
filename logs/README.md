@@ -13,6 +13,6 @@ Current files:
 
 - `sample-logs.jsonl` - safe fictional examples for parser and detection rule
   development, including implemented brute-force, SQLi-style, XSS-style,
-  broken-access-control, SSRF, security-misconfiguration, and
-  cryptographic-failure signals
+  broken-access-control, SSRF, security-misconfiguration, cryptographic-failure,
+  and logging-failure signals
 - `application.jsonl` - generated locally by the vulnerable app when it runs

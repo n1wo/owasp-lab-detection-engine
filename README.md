@@ -13,14 +13,15 @@ combines a deliberately vulnerable Flask web app, structured JSONL security
 telemetry, a Python detection engine, and reproducible localhost demo
 workflows.
 
-The project currently covers seven OWASP-oriented scenarios: it detects
+The project currently covers eight OWASP-oriented scenarios: it detects
 repeated failed login attempts with `AUTH-BRUTE-FORCE-001`, SQL-injection-like
 input with `WEB-SQLI-PATTERN-001`, XSS-like input with `WEB-XSS-PATTERN-001`,
 admin-panel privilege escalation with `BAC-PRIV-ESC-001`, server-side
 request forgery against internal targets with `WEB-SSRF-INTERNAL-001`,
 sensitive configuration disclosed by an exposed debug endpoint with
-`CONFIG-EXPOSURE-001`, and weak password hashing at registration with
-`CRYPTO-WEAK-001`.
+`CONFIG-EXPOSURE-001`, weak password hashing at registration with
+`CRYPTO-WEAK-001`, and sensitive actions performed without an audit or alert
+trail with `LOG-GAP-001`.
 
 > **Safety warning:** This project contains intentionally vulnerable examples
 > for local educational use only. Do not deploy it to the public internet and
@@ -53,6 +54,7 @@ This project demonstrates:
 - [x] Server-side fetch page for SSRF-style local learning (`/fetch`)
 - [x] Debug endpoint that leaks config in insecure mode (`/debug`)
 - [x] Registration page with weak vs salted password hashing (`/register`)
+- [x] Sensitive admin action with missing audit logging (`/admin/role`)
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] Detection rule `WEB-XSS-PATTERN-001`
@@ -60,6 +62,7 @@ This project demonstrates:
 - [x] Detection rule `WEB-SSRF-INTERNAL-001`
 - [x] Detection rule `CONFIG-EXPOSURE-001`
 - [x] Detection rule `CRYPTO-WEAK-001`
+- [x] Detection rule `LOG-GAP-001`
 - [x] CLI with human-readable and JSON output
 - [x] Live SOC alerts at `/soc` from local app telemetry
 - [x] Self-contained HTML findings dashboard via `--html`
@@ -173,7 +176,7 @@ python -m pytest
 Current expected result:
 
 ```text
-98 passed
+105 passed
 ```
 
 On Windows/OneDrive, pytest may print cache or temp-directory warnings even
@@ -588,6 +591,8 @@ Expected finding:
   with `signal` set to `config_exposure_pattern`
 - Rule: `CRYPTO-WEAK-001` when the log contains a `credential_storage` event
   with `signal` set to `weak_password_hash_pattern`
+- Rule: `LOG-GAP-001` when the log contains a `sensitive_action` event with
+  `signal` set to `logging_failure_pattern`
 
 ## Full Demo Flow
 
@@ -650,6 +655,7 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `WEB-SSRF-INTERNAL-001` | Detect server-side fetches aimed at internal targets | `outbound_request` event with `signal=ssrf_internal_target_pattern` | High | Implemented |
 | `CONFIG-EXPOSURE-001` | Detect sensitive configuration disclosed by an exposed debug endpoint | `config_exposure` event with `signal=config_exposure_pattern` | High | Implemented |
 | `CRYPTO-WEAK-001` | Detect passwords stored with a weak (unsalted) hashing algorithm | `credential_storage` event with `signal=weak_password_hash_pattern` | High | Implemented |
+| `LOG-GAP-001` | Detect sensitive actions performed without an audit or alert record | `sensitive_action` event with `signal=logging_failure_pattern` | High | Implemented |
 
 ## Log Schema
 
@@ -684,6 +690,7 @@ Supported current `event_type` values:
 - `outbound_request`
 - `config_exposure`
 - `credential_storage`
+- `sensitive_action`
 - `lab_mode_change`
 
 ## Running Tests
@@ -735,6 +742,8 @@ Completed:
 - [x] `CONFIG-EXPOSURE-001`
 - [x] cryptographic failures scenario (weak password hashing)
 - [x] `CRYPTO-WEAK-001`
+- [x] security logging & alerting failures scenario (unaudited admin action)
+- [x] `LOG-GAP-001`
 - [x] reproducible brute-force demo workflow
 - [x] reproducible SQLi-like search demo workflow
 - [x] reproducible XSS-like comment demo workflow
@@ -758,13 +767,11 @@ Covered:
 - [x] A04 Cryptographic Failures - `CRYPTO-WEAK-001` (weak password hashing)
 - [x] A05 Injection - `WEB-SQLI-PATTERN-001`, `WEB-XSS-PATTERN-001`
 - [x] A07 Authentication Failures - `AUTH-BRUTE-FORCE-001` (brute force only)
+- [x] A09 Security Logging & Alerting Failures - `LOG-GAP-001` (unaudited admin action)
 
 Planned scenarios (each: vulnerable route, secure-mode comparison, JSONL signal,
 detection rule, tests, docs):
 
-- [ ] A09 Security Logging & Alerting Failures - sensitive action that emits no
-  telemetry or fires no alert in insecure mode; detection gap rule `LOG-GAP-001`
-  (high priority)
 - [ ] A10 Mishandling of Exceptional Conditions - fail-open auth/validation path
   and stack-trace leakage on error; rule `FAIL-OPEN-001` (high priority, new 2025
   category)

@@ -37,6 +37,7 @@ BROKEN_ACCESS_SIGNAL = "broken_access_control_pattern"
 SSRF_SIGNAL = "ssrf_internal_target_pattern"
 CONFIG_EXPOSURE_SIGNAL = "config_exposure_pattern"
 WEAK_HASH_SIGNAL = "weak_password_hash_pattern"
+LOGGING_FAILURE_SIGNAL = "logging_failure_pattern"
 PBKDF2_ITERATIONS = 200_000
 SSRF_ALLOWED_SCHEMES = {"http", "https"}
 SSRF_INTERNAL_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal"}
@@ -426,6 +427,55 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         if status_code != 200:
             return rendered, status_code
         return rendered
+
+    @app.get("/admin/role")
+    def role_form() -> Response | str:
+        """Render the sensitive admin role-change form."""
+
+        return render_template_string(ROLE_TEMPLATE, mode=_mode(), result=None)
+
+    @app.post("/admin/role")
+    def role_change() -> Response | str:
+        """Perform a sensitive admin role change with mode-dependent auditing.
+
+        Changing a user's role is a security-relevant action that must leave an
+        audit trail and raise an alert. Insecure mode performs the change but
+        records no audit/alert event &mdash; a logging and alerting failure that
+        leaves the privileged action invisible to the app's own monitoring.
+        Secure mode writes a full audit record and marks it alerted. Both modes
+        emit a ``sensitive_action`` event; only the unaudited path carries the
+        ``logging_failure_pattern`` signal, which the external detection engine
+        flags. No role is persisted &mdash; this is a demonstration only.
+        """
+
+        target_user = request.form.get("user", "").strip() or "test-user"
+        new_role = request.form.get("role", "").strip() or "admin"
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+        audited = _mode() == "secure"
+
+        _log_sensitive_action_event(
+            logger,
+            request_id=request_id,
+            source_ip=source_ip,
+            action="role_change",
+            target_user=target_user,
+            new_role=new_role,
+            audited=audited,
+            status_code=200,
+            reason="audit_logged" if audited else "audit_logging_disabled",
+            signal=None if audited else LOGGING_FAILURE_SIGNAL,
+        )
+        return render_template_string(
+            ROLE_TEMPLATE,
+            mode=_mode(),
+            result={
+                "action": "role_change",
+                "target_user": target_user,
+                "new_role": new_role,
+                "audited": audited,
+            },
+        )
 
     @app.get("/register")
     def register_form() -> Response | str:
@@ -909,6 +959,18 @@ def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
                 f"{event.get('algorithm', 'unknown')} without salting (cryptographic failure)."
             ),
         )
+    if event_type == "sensitive_action" and signal == LOGGING_FAILURE_SIGNAL:
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Sensitive action without audit trail",
+            rule="LOG-GAP-001",
+            detail=(
+                f"Sensitive action {event.get('action', 'unknown')!r} on "
+                f"{event.get('target_user', 'unknown')!r} was performed with no audit or alert "
+                "record (logging & alerting failure)."
+            ),
+        )
     return None
 
 
@@ -958,6 +1020,39 @@ def _log_admin_access(
             "signal": signal,
             "granted": granted,
             "success": granted,
+        }
+    )
+
+
+def _log_sensitive_action_event(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    action: str,
+    target_user: str,
+    new_role: str,
+    audited: bool,
+    status_code: int,
+    reason: str,
+    signal: str | None,
+) -> None:
+    """Write one structured sensitive-admin-action event for local detection rules."""
+
+    logger.write(
+        {
+            "event_type": "sensitive_action",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": "admin",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "action": action,
+            "target_user": target_user,
+            "new_role": new_role,
+            "audit_logged": audited,
+            "alerted": audited,
+            "success": True,
         }
     )
 
@@ -1449,6 +1544,11 @@ HOME_TEMPLATE = """
             <div class="name">Cryptographic failures</div>
             <p class="desc">Register an account and see the password stored as unsalted MD5 in insecure mode; secure mode uses salted PBKDF2.</p>
           </a>
+          <a class="scenario" href="/admin/role">
+            <div class="rule">LOG-GAP-001</div>
+            <div class="name">Logging &amp; alerting failures</div>
+            <p class="desc">Change a user's role. Insecure mode leaves no audit or alert record; secure mode audits and alerts on the action.</p>
+          </a>
         </div>
       </div>
 
@@ -1785,6 +1885,96 @@ FETCH_TEMPLATE = """
       {% endif %}
     </div>
     <div class="footer">WEB-SSRF-INTERNAL-001 &middot; logs/application.jsonl</div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
+ROLE_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Role Change</title>
+    <style>{styles}
+      .store-dump { margin: 1.2rem 0 0; padding: 0; list-style: none; }
+      .store-dump li {
+        display: flex; gap: 0.8rem; align-items: baseline;
+        font-family: var(--mono); font-size: 0.82rem;
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+        background: rgba(255, 255, 255, 0.02); overflow-wrap: anywhere;
+      }
+      .store-dump .k { color: var(--text-faint); min-width: 8rem; }
+      .store-dump .v { color: var(--accent); }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
+    <div class="card">
+      <div class="title-row">
+        <h1>Admin role change</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A09 &middot; LOG-GAP-001 &middot; High</div>
+          <h3>Security logging &amp; alerting failures</h3>
+          <p>Changing a user's role is exactly the kind of privileged action that must leave an audit trail and raise an alert. When sensitive actions are not logged or alerted, an attacker can escalate privileges and operate unseen &mdash; incident responders have nothing to find.</p>
+          <h4>Try it</h4>
+          <p>Promote a user to <code>admin</code> below. In insecure mode the change happens with no audit or alert record; flip to secure mode and the same action is fully audited and alerted.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> the role change is performed but the app's own auditing and alerting are off &mdash; no audit record, no alert.</div>
+            <div class="sec"><strong>Secure:</strong> the action writes a full audit record and is marked alerted.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>A <code>sensitive_action</code> event with signal <code>logging_failure_pattern</code> raises <strong>LOG-GAP-001</strong> &mdash; the external detection engine catches the gap the app missed.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
+      <p class="subtitle">Audit-logging lab &mdash; whether a sensitive action is audited is logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. No role is persisted &mdash; this only demonstrates the audit-logging behavior.</div>
+      <form method="post" action="/admin/role">
+        <label>
+          Target user
+          <input name="user" autocomplete="off" placeholder="test-user" value="test-user">
+        </label>
+        <label>
+          New role
+          <input name="role" autocomplete="off" placeholder="admin" value="admin">
+        </label>
+        <button type="submit">Apply role change</button>
+      </form>
+      {% if result %}
+        {% if result.audited %}
+        <div class="notice" style="margin-top:1rem;">&#9989;&nbsp; Role change audited and alerted. No detection signal is raised.</div>
+        {% else %}
+        <div class="notice error" style="margin-top:1rem;">&#9940;&nbsp; Role change performed with no audit or alert record. This gap is logged as <strong>LOG-GAP-001</strong>.</div>
+        {% endif %}
+        <h2>Action result</h2>
+        <ul class="store-dump">
+          <li><span class="k">action</span><span class="v">{{ result.action }}</span></li>
+          <li><span class="k">target_user</span><span class="v">{{ result.target_user }}</span></li>
+          <li><span class="k">new_role</span><span class="v">{{ result.new_role }}</span></li>
+          <li><span class="k">audit_logged</span><span class="v">{{ result.audited }}</span></li>
+          <li><span class="k">alerted</span><span class="v">{{ result.audited }}</span></li>
+        </ul>
+      {% endif %}
+    </div>
+    <div class="footer">LOG-GAP-001 &middot; logs/application.jsonl</div>
     {nav}
   </body>
 </html>

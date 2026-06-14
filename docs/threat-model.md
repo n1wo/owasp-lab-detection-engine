@@ -34,6 +34,7 @@ The current implemented scenarios are:
 - server-side request forgery against internal targets in insecure mode
 - security misconfiguration via an exposed debug endpoint in insecure mode
 - cryptographic failure via weak password hashing at registration in insecure mode
+- security logging & alerting failure on a sensitive admin action in insecure mode
 
 Each scenario should eventually include:
 
@@ -178,6 +179,26 @@ In `LAB_MODE=secure`, the same route stores passwords safely:
 
 No account is persisted; this scenario only demonstrates how the password would
 be stored. All values are fictional and local to this lab.
+
+## Current Security Logging & Alerting Failures Scenario
+
+In `LAB_MODE=insecure`, the local `/admin/role` route performs a sensitive
+privilege change without leaving an audit or alert trail:
+
+- the role change is applied, but the app's own auditing and alerting are off
+- a `sensitive_action` event is logged with `signal=logging_failure_pattern`,
+  `reason=audit_logging_disabled`, and `audit_logged`/`alerted` set to false
+
+In `LAB_MODE=secure`, the same action is fully recorded:
+
+- the change writes a complete audit record and is marked alerted
+- the event is logged with `reason=audit_logged` and no signal, so an audited
+  action is not flagged
+
+This scenario models how missing audit logging and alerting let privileged
+actions go unseen by an application's own monitoring; the external detection
+engine catches the gap. No role is persisted, and all values are fictional and
+local to this lab.
 
 ## Assumptions
 

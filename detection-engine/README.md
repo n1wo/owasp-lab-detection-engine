@@ -21,6 +21,8 @@ Current responsibilities:
   lab scenarios
 - evaluate cryptographic-failure (weak password hashing) detection logic for
   local lab scenarios
+- evaluate logging-and-alerting-failure (unaudited sensitive action) detection
+  logic for local lab scenarios
 - report findings in a clear local output format
 - report malformed JSONL lines safely without stopping valid parsing
 - ignore unknown additional log fields safely while preserving the raw event
@@ -77,6 +79,11 @@ credentials, and runtime settings). Severity is High.
 `CRYPTO-WEAK-001` detects `credential_storage` events where `signal` is
 `weak_password_hash_pattern` (a password stored with a fast, unsalted hash such
 as MD5 instead of a salted key-derivation function). Severity is High.
+
+`LOG-GAP-001` detects `sensitive_action` events where `signal` is
+`logging_failure_pattern` (a privileged action performed with no audit or alert
+record). The external engine catches the gap the app's own monitoring missed.
+Severity is High.
 
 All rules emit:
 

@@ -20,6 +20,7 @@ publicly.
 - server-side fetch page at `/fetch` for SSRF-style local learning
 - debug endpoint at `/debug` that leaks config in insecure mode (misconfiguration)
 - registration page at `/register` with weak vs salted password hashing
+- sensitive admin action at `/admin/role` with mode-dependent audit logging
 - live SOC alerts page at `/soc`
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
@@ -108,6 +109,19 @@ Registration events use `event_type=credential_storage` and include:
 | `salted` | Whether a per-user salt was applied |
 | `reason` | `weak_password_hash` or `strong_password_hash` |
 
+## Sensitive Action Telemetry Schema
+
+Sensitive admin actions use `event_type=sensitive_action` and include:
+
+| Field | Description |
+| --- | --- |
+| `signal` | `logging_failure_pattern` when the action was unaudited, otherwise `null` |
+| `action` | The sensitive operation, currently `role_change` |
+| `target_user` | The account the action affected |
+| `new_role` | The role applied |
+| `audit_logged` / `alerted` | Whether an audit record and alert were produced |
+| `reason` | `audit_logging_disabled` or `audit_logged` |
+
 ## Live SOC Alerts
 
 The `/soc` route reads the local JSONL log directly when no generated
@@ -122,6 +136,7 @@ The `/soc` route reads the local JSONL log directly when no generated
 - server-side requests to internal targets (SSRF)
 - sensitive configuration exposed by the debug endpoint (misconfiguration)
 - passwords stored with weak hashing at registration (cryptographic failure)
+- sensitive admin actions performed without an audit trail (logging failure)
 
 ## Local Commands
 
@@ -159,6 +174,7 @@ The current vulnerable scenarios are a brute-forceable login flow, a SQLi-style
 suspicious search input flow, an XSS-style suspicious comment rendering flow, a
 broken access control flow on the `/dashboard` admin panel, an SSRF-style
 server-side fetch flow on `/fetch`, a security misconfiguration flow on the
-`/debug` endpoint, and a cryptographic failure flow on the `/register` endpoint,
-all in insecure mode. Future scenarios should keep vulnerable and secure
-behavior clearly separated.
+`/debug` endpoint, a cryptographic failure flow on the `/register` endpoint, and
+a logging & alerting failure flow on the `/admin/role` action, all in insecure
+mode. Future scenarios should keep vulnerable and secure behavior clearly
+separated.

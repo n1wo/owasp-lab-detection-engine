@@ -471,3 +471,68 @@ python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
+## Security Logging & Alerting Failures Scenario
+
+This scenario has no demo script. It is driven manually against the local
+`/admin/role` route, a sensitive privilege change that should always be audited.
+
+In insecure mode the role change is performed with no audit or alert record. In
+secure mode the same action writes a full audit record and is marked alerted. No
+role is persisted.
+
+### Logs Generated
+
+The app writes a `sensitive_action` event to:
+
+```text
+logs/application.jsonl
+```
+
+The sensitive-action event includes:
+
+- `event_type`: `sensitive_action`
+- `signal`: `logging_failure_pattern` (insecure) or absent (secure)
+- `request_path`: `/admin/role`
+- `action`: `role_change`
+- `target_user` and `new_role`
+- `audit_logged` / `alerted`: `false` (insecure) or `true` (secure)
+- `reason`: `audit_logging_disabled` or `audit_logged`
+- `lab_mode`
+
+### Why The Rule Triggers
+
+`LOG-GAP-001` triggers when the detection engine sees a `sensitive_action` event
+with `signal` set to `logging_failure_pattern`. The external detection engine
+catches the gap that the app's own monitoring missed. Audited actions carry no
+signal and do not match.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `LOG-GAP-001`
+- `severity`: `High`
+- `source_ip`
+- `username`: `admin` (the acting administrator)
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app, then perform an unaudited role change:
+
+```bash
+docker compose up --build
+curl -X POST -d "user=test-user&role=admin" "http://127.0.0.1:8080/admin/role"
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
