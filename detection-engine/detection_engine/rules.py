@@ -17,6 +17,7 @@ CONFIG_EXPOSURE_RULE_ID = "CONFIG-EXPOSURE-001"
 CRYPTO_WEAK_RULE_ID = "CRYPTO-WEAK-001"
 LOGGING_FAILURE_RULE_ID = "LOG-GAP-001"
 UNSAFE_DESERIALIZATION_RULE_ID = "INTEGRITY-DESERIALIZE-001"
+BUSINESS_LOGIC_RULE_ID = "DESIGN-LOGIC-001"
 SEVERITY = "Medium"
 SEVERITY_HIGH = "High"
 FAILURE_THRESHOLD = 5
@@ -29,6 +30,7 @@ CONFIG_EXPOSURE_SIGNAL = "config_exposure_pattern"
 WEAK_HASH_SIGNAL = "weak_password_hash_pattern"
 LOGGING_FAILURE_SIGNAL = "logging_failure_pattern"
 UNSAFE_DESERIALIZATION_SIGNAL = "unsafe_deserialization_pattern"
+BUSINESS_LOGIC_SIGNAL = "business_logic_abuse_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -44,6 +46,7 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
         *detect_weak_crypto(events),
         *detect_logging_failures(events),
         *detect_unsafe_deserialization(events),
+        *detect_business_logic_abuse(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -388,6 +391,47 @@ def detect_unsafe_deserialization(events: list[LogEvent]) -> list[DetectionFindi
                     f"Unsafe deserialization/object trust: profile import on {request_path} "
                     f"trusted privileged client-controlled fields ({privileged_str}) for "
                     f"{event.username!r} from {event.source_ip}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_business_logic_abuse(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect checkout events that abuse client-controlled business logic.
+
+    The vulnerable app logs a ``business_action`` event carrying the
+    ``business_logic_abuse_pattern`` signal when checkout receives a
+    client-submitted final total below the server-calculated minimum. Insecure
+    mode processes the order; secure mode rejects it. Both are detection-worthy
+    attempts because the workflow request abuses a bad trust boundary.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "business_action":
+            continue
+        if event.raw.get("signal") != BUSINESS_LOGIC_SIGNAL:
+            continue
+
+        action = str(event.raw.get("action") or "unknown")
+        request_path = str(event.raw.get("request_path") or "unknown")
+        client_total = str(event.raw.get("client_total") or "unknown")
+        allowed_minimum = str(event.raw.get("allowed_minimum") or "unknown")
+        findings.append(
+            DetectionFinding(
+                rule_id=BUSINESS_LOGIC_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Business logic abuse: {action!r} on {request_path} submitted "
+                    f"client-controlled total {client_total} below server-calculated "
+                    f"minimum {allowed_minimum} for {event.username!r} from {event.source_ip}"
                 ),
             )
         )
