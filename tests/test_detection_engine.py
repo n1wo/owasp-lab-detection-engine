@@ -16,8 +16,10 @@ from detection_engine.rules import (  # noqa: E402
     detect_all,
     detect_broken_access_control,
     detect_brute_force,
+    detect_business_logic_abuse,
     detect_sqli_patterns,
     detect_ssrf_patterns,
+    detect_unsafe_deserialization,
     detect_xss_patterns,
 )
 
@@ -134,6 +136,42 @@ def outbound_request_event(
             "request_path": "/fetch",
             "target_host": target_host,
             "target_url": f"http://{target_host}/latest/meta-data/",
+        },
+    )
+
+
+def profile_import_event(source_ip="127.0.0.1", signal="unsafe_deserialization_pattern", minute=0):
+    """Build a profile_import LogEvent for unsafe object-trust detection tests."""
+
+    timestamp = datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+    return LogEvent(
+        timestamp=timestamp,
+        event_type="profile_import",
+        source_ip=source_ip,
+        username="test-user",
+        raw={
+            "signal": signal,
+            "request_path": "/profile/import",
+            "privileged_keys": ["role", "feature_flags"],
+        },
+    )
+
+
+def business_action_event(source_ip="127.0.0.1", signal="business_logic_abuse_pattern", minute=0):
+    """Build a business_action LogEvent for insecure-design detection tests."""
+
+    timestamp = datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+    return LogEvent(
+        timestamp=timestamp,
+        event_type="business_action",
+        source_ip=source_ip,
+        username="test-user",
+        raw={
+            "signal": signal,
+            "request_path": "/checkout",
+            "action": "checkout",
+            "client_total": "0.00",
+            "allowed_minimum": "39.20",
         },
     )
 
@@ -386,6 +424,62 @@ def test_ssrf_rule_ignores_outbound_request_without_signal():
     assert detect_ssrf_patterns([benign]) == []
 
 
+def test_unsafe_deserialization_rule_triggers_on_privileged_import_signal():
+    """Verify unsafe serialized profile import telemetry creates a finding."""
+
+    events = [profile_import_event()]
+
+    findings = detect_unsafe_deserialization(events)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.rule_id == "INTEGRITY-DESERIALIZE-001"
+    assert finding.severity == "High"
+    assert finding.source_ip == "127.0.0.1"
+    assert finding.username == "test-user"
+    assert finding.event_count == 1
+    assert finding.first_seen == events[0].timestamp
+    assert finding.last_seen == events[0].timestamp
+    assert "role" in finding.reason
+    assert "/profile/import" in finding.reason
+
+
+def test_unsafe_deserialization_rule_ignores_validated_import():
+    """Verify validated profile imports without the signal do not trigger."""
+
+    benign = profile_import_event(signal=None)
+
+    assert detect_unsafe_deserialization([benign]) == []
+
+
+def test_business_logic_rule_triggers_on_client_total_abuse_signal():
+    """Verify business-logic-abuse checkout telemetry creates a finding."""
+
+    events = [business_action_event()]
+
+    findings = detect_business_logic_abuse(events)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.rule_id == "DESIGN-LOGIC-001"
+    assert finding.severity == "High"
+    assert finding.source_ip == "127.0.0.1"
+    assert finding.username == "test-user"
+    assert finding.event_count == 1
+    assert finding.first_seen == events[0].timestamp
+    assert finding.last_seen == events[0].timestamp
+    assert "0.00" in finding.reason
+    assert "/checkout" in finding.reason
+
+
+def test_business_logic_rule_ignores_valid_checkout():
+    """Verify validated checkout events without the signal do not trigger."""
+
+    benign = business_action_event(signal=None)
+
+    assert detect_business_logic_abuse([benign]) == []
+
+
 def test_detect_all_returns_every_rule_type():
     """Verify the combined rule runner emits all implemented rule types."""
 
@@ -394,6 +488,8 @@ def test_detect_all_returns_every_rule_type():
     events.append(xss_input_event(minute=7))
     events.append(admin_access_event(minute=8))
     events.append(outbound_request_event(minute=9))
+    events.append(profile_import_event(minute=10))
+    events.append(business_action_event(minute=11))
 
     findings = detect_all(events)
 
@@ -403,4 +499,6 @@ def test_detect_all_returns_every_rule_type():
         "WEB-XSS-PATTERN-001",
         "BAC-PRIV-ESC-001",
         "WEB-SSRF-INTERNAL-001",
+        "INTEGRITY-DESERIALIZE-001",
+        "DESIGN-LOGIC-001",
     ]

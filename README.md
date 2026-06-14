@@ -13,7 +13,7 @@ combines a deliberately vulnerable Flask web app, structured JSONL security
 telemetry, a Python detection engine, and reproducible localhost demo
 workflows.
 
-The project currently covers eight OWASP-oriented scenarios: it detects
+The project currently covers ten OWASP-oriented scenarios: it detects
 repeated failed login attempts with `AUTH-BRUTE-FORCE-001`, SQL-injection-like
 input with `WEB-SQLI-PATTERN-001`, XSS-like input with `WEB-XSS-PATTERN-001`,
 admin-panel privilege escalation with `BAC-PRIV-ESC-001`, server-side
@@ -21,7 +21,9 @@ request forgery against internal targets with `WEB-SSRF-INTERNAL-001`,
 sensitive configuration disclosed by an exposed debug endpoint with
 `CONFIG-EXPOSURE-001`, weak password hashing at registration with
 `CRYPTO-WEAK-001`, and sensitive actions performed without an audit or alert
-trail with `LOG-GAP-001`.
+trail with `LOG-GAP-001`, plus unsafe serialized profile imports with
+`INTEGRITY-DESERIALIZE-001` and checkout business-logic abuse with
+`DESIGN-LOGIC-001`.
 
 > **Safety warning:** This project contains intentionally vulnerable examples
 > for local educational use only. Do not deploy it to the public internet and
@@ -55,6 +57,8 @@ This project demonstrates:
 - [x] Debug endpoint that leaks config in insecure mode (`/debug`)
 - [x] Registration page with weak vs salted password hashing (`/register`)
 - [x] Sensitive admin action with missing audit logging (`/admin/role`)
+- [x] Profile import page with unsafe object trust (`/profile/import`)
+- [x] Checkout page with client-controlled price abuse (`/checkout`)
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] Detection rule `WEB-XSS-PATTERN-001`
@@ -63,6 +67,8 @@ This project demonstrates:
 - [x] Detection rule `CONFIG-EXPOSURE-001`
 - [x] Detection rule `CRYPTO-WEAK-001`
 - [x] Detection rule `LOG-GAP-001`
+- [x] Detection rule `INTEGRITY-DESERIALIZE-001`
+- [x] Detection rule `DESIGN-LOGIC-001`
 - [x] CLI with human-readable and JSON output
 - [x] Live SOC alerts at `/soc` from local app telemetry
 - [x] Self-contained HTML findings dashboard via `--html`
@@ -177,7 +183,7 @@ python -m pytest
 Current expected result:
 
 ```text
-105 passed
+127 passed
 ```
 
 On Windows/OneDrive, pytest may print cache or temp-directory warnings even
@@ -607,6 +613,10 @@ Expected finding:
   with `signal` set to `weak_password_hash_pattern`
 - Rule: `LOG-GAP-001` when the log contains a `sensitive_action` event with
   `signal` set to `logging_failure_pattern`
+- Rule: `INTEGRITY-DESERIALIZE-001` when the log contains a `profile_import`
+  event with `signal` set to `unsafe_deserialization_pattern`
+- Rule: `DESIGN-LOGIC-001` when the log contains a `business_action` event with
+  `signal` set to `business_logic_abuse_pattern`
 
 ## Full Demo Flow
 
@@ -672,6 +682,8 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `CONFIG-EXPOSURE-001` | Detect sensitive configuration disclosed by an exposed debug endpoint | `config_exposure` event with `signal=config_exposure_pattern` | High | Implemented |
 | `CRYPTO-WEAK-001` | Detect passwords stored with a weak (unsalted) hashing algorithm | `credential_storage` event with `signal=weak_password_hash_pattern` | High | Implemented |
 | `LOG-GAP-001` | Detect sensitive actions performed without an audit or alert record | `sensitive_action` event with `signal=logging_failure_pattern` | High | Implemented |
+| `INTEGRITY-DESERIALIZE-001` | Detect serialized profile imports that trust privileged client-controlled fields | `profile_import` event with `signal=unsafe_deserialization_pattern` | High | Implemented |
+| `DESIGN-LOGIC-001` | Detect checkout requests that abuse client-controlled business logic | `business_action` event with `signal=business_logic_abuse_pattern` | High | Implemented |
 
 ## Log Schema
 
@@ -707,6 +719,8 @@ Supported current `event_type` values:
 - `config_exposure`
 - `credential_storage`
 - `sensitive_action`
+- `profile_import`
+- `business_action`
 - `lab_mode_change`
 
 ## Running Tests
@@ -760,6 +774,10 @@ Completed:
 - [x] `CRYPTO-WEAK-001`
 - [x] security logging & alerting failures scenario (unaudited admin action)
 - [x] `LOG-GAP-001`
+- [x] software/data integrity scenario (unsafe profile import)
+- [x] `INTEGRITY-DESERIALIZE-001`
+- [x] insecure design scenario (client-controlled checkout total)
+- [x] `DESIGN-LOGIC-001`
 - [x] reproducible brute-force demo workflow
 - [x] reproducible SQLi-like search demo workflow
 - [x] reproducible XSS-like comment demo workflow
@@ -782,7 +800,10 @@ Covered:
 - [x] A02 Security Misconfiguration - `CONFIG-EXPOSURE-001` (exposed debug endpoint)
 - [x] A04 Cryptographic Failures - `CRYPTO-WEAK-001` (weak password hashing)
 - [x] A05 Injection - `WEB-SQLI-PATTERN-001`, `WEB-XSS-PATTERN-001`
+- [x] A06 Insecure Design - `DESIGN-LOGIC-001` (client-controlled checkout total)
 - [x] A07 Authentication Failures - `AUTH-BRUTE-FORCE-001` (brute force only)
+- [x] A08 Software or Data Integrity Failures - `INTEGRITY-DESERIALIZE-001`
+  (unsafe serialized profile import)
 - [x] A09 Security Logging & Alerting Failures - `LOG-GAP-001` (unaudited admin action)
 
 Planned scenarios (each: vulnerable route, secure-mode comparison, JSONL signal,
@@ -791,10 +812,6 @@ detection rule, tests, docs):
 - [ ] A10 Mishandling of Exceptional Conditions - fail-open auth/validation path
   and stack-trace leakage on error; rule `FAIL-OPEN-001` (high priority, new 2025
   category)
-- [ ] A08 Software or Data Integrity Failures - insecure deserialization or
-  tampered signed-cookie/data trust; rule `INTEGRITY-FAILURE-001`
-- [ ] A06 Insecure Design - business-logic flaw by design, e.g. reset/transfer
-  with no identity proof or quantity/price manipulation; rule `DESIGN-LOGIC-001`
 - [ ] A03 Software Supply Chain Failures - known-bad pinned dependency or tampered
   build artifact; static manifest/lockfile check rather than runtime telemetry
   (lower feasibility for this log-driven lab)

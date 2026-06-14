@@ -23,6 +23,10 @@ Current responsibilities:
   local lab scenarios
 - evaluate logging-and-alerting-failure (unaudited sensitive action) detection
   logic for local lab scenarios
+- evaluate software/data-integrity (unsafe serialized profile import) detection
+  logic for local lab scenarios
+- evaluate insecure-design (client-controlled checkout total) detection logic
+  for local lab scenarios
 - report findings in a clear local output format
 - report malformed JSONL lines safely without stopping valid parsing
 - ignore unknown additional log fields safely while preserving the raw event
@@ -84,6 +88,14 @@ as MD5 instead of a salted key-derivation function). Severity is High.
 `logging_failure_pattern` (a privileged action performed with no audit or alert
 record). The external engine catches the gap the app's own monitoring missed.
 Severity is High.
+
+`INTEGRITY-DESERIALIZE-001` detects `profile_import` events where `signal` is
+`unsafe_deserialization_pattern` (a serialized profile import trusted
+privileged client-controlled fields such as `role`). Severity is High.
+
+`DESIGN-LOGIC-001` detects `business_action` events where `signal` is
+`business_logic_abuse_pattern` (a checkout request submitted a client-controlled
+final total below the server-calculated minimum). Severity is High.
 
 All rules emit:
 

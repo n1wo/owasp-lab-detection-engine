@@ -86,6 +86,136 @@ python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
+## Insecure Design Checkout Scenario
+
+This scenario has no demo script. It is driven manually against the local
+`/checkout` route, which simulates a checkout workflow without processing any
+real payment or persisting an order.
+
+In insecure mode the route trusts the client-submitted final total. In secure
+mode the route recalculates the minimum allowed total from server-side product
+data and rejects impossible discounts.
+
+### Logs Generated
+
+The app writes a `business_action` event to:
+
+```text
+logs/application.jsonl
+```
+
+The checkout event includes:
+
+- `event_type`: `business_action`
+- `signal`: `business_logic_abuse_pattern` when the submitted total is below
+  the server-calculated minimum
+- `request_path`: `/checkout`
+- `action`: `checkout`
+- `expected_total`, `allowed_minimum`, and `client_total`
+- `reason`: `trusted_client_controlled_total`,
+  `rejected_client_controlled_total`, or `server_validated_checkout`
+- `lab_mode`
+
+### Why The Rule Triggers
+
+`DESIGN-LOGIC-001` triggers when the detection engine sees a `business_action`
+event with `signal` set to `business_logic_abuse_pattern`. The rule fires for
+both accepted insecure-mode abuse and rejected secure-mode attempts.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `DESIGN-LOGIC-001`
+- `severity`: `High`
+- `source_ip`
+- `username`: `test-user`
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app, then submit a zero-total checkout:
+
+```bash
+docker compose up --build
+curl -X POST -d "quantity=1&client_total=0.00" "http://127.0.0.1:8080/checkout"
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
+## Unsafe Profile Import Scenario
+
+This scenario has no demo script. It is driven manually against the local
+`/profile/import` route, which imports a serialized JSON profile object.
+
+In insecure mode the route trusts every field in the imported object, including
+privileged fields such as `role` and `feature_flags`. In secure mode the same
+payload is rejected unless it contains only allowlisted preference fields.
+
+### Logs Generated
+
+The app writes a `profile_import` event to:
+
+```text
+logs/application.jsonl
+```
+
+The profile-import event includes:
+
+- `event_type`: `profile_import`
+- `signal`: `unsafe_deserialization_pattern` (insecure exploit) or absent
+- `request_path`: `/profile/import`
+- `imported_keys`, `trusted_keys`, and `privileged_keys`
+- `reason`: `trusted_serialized_privileged_fields`,
+  `rejected_privileged_serialized_fields`, or `validated_profile_import`
+- `lab_mode`
+
+### Why The Rule Triggers
+
+`INTEGRITY-DESERIALIZE-001` triggers when the detection engine sees a
+`profile_import` event with `signal` set to
+`unsafe_deserialization_pattern`. Rejected secure-mode imports carry no signal
+and do not match.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `INTEGRITY-DESERIALIZE-001`
+- `severity`: `High`
+- `source_ip`
+- `username`: `test-user`
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app, then submit a profile containing privileged fields:
+
+```bash
+docker compose up --build
+curl -X POST --data-urlencode 'payload={"display_name":"test-user","theme":"dark","timezone":"UTC","role":"admin","feature_flags":["admin_panel"]}' "http://127.0.0.1:8080/profile/import"
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
 ## SQLi-Style Search Scenario
 
 The SQLi-style demo sends one local search request to `/search` with a

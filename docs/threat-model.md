@@ -35,6 +35,8 @@ The current implemented scenarios are:
 - security misconfiguration via an exposed debug endpoint in insecure mode
 - cryptographic failure via weak password hashing at registration in insecure mode
 - security logging & alerting failure on a sensitive admin action in insecure mode
+- software/data integrity failure via unsafe serialized profile import in insecure mode
+- insecure design via client-controlled checkout total in insecure mode
 
 Each scenario should eventually include:
 
@@ -199,6 +201,50 @@ This scenario models how missing audit logging and alerting let privileged
 actions go unseen by an application's own monitoring; the external detection
 engine catches the gap. No role is persisted, and all values are fictional and
 local to this lab.
+
+## Current Software/Data Integrity Scenario
+
+In `LAB_MODE=insecure`, the local `/profile/import` route trusts every key in a
+serialized JSON profile import:
+
+- client-controlled privileged fields such as `role` and `feature_flags` are
+  accepted into the trusted profile object
+- a `profile_import` event is logged with
+  `signal=unsafe_deserialization_pattern` and
+  `reason=trusted_serialized_privileged_fields`
+
+In `LAB_MODE=secure`, the same route validates the imported object:
+
+- only allowlisted preference fields are accepted
+- privileged or unknown fields are rejected with HTTP `400`
+- accepted safe imports log with `reason=validated_profile_import` and no
+  signal, so validated imports are not flagged
+
+This scenario avoids real code execution primitives. It models unsafe trust in
+serialized client-controlled data while keeping the lab deterministic and local.
+
+## Current Insecure Design Scenario
+
+In `LAB_MODE=insecure`, the local `/checkout` route trusts a client-submitted
+final total:
+
+- the server knows the item unit price but accepts an impossible submitted total
+  such as `0.00`
+- a `business_action` event is logged with
+  `signal=business_logic_abuse_pattern` and
+  `reason=trusted_client_controlled_total`
+
+In `LAB_MODE=secure`, the same route recalculates the minimum allowed total
+from server-side item data:
+
+- checkout totals below the server-calculated minimum are rejected with HTTP
+  `400`
+- the rejected attempt still logs `signal=business_logic_abuse_pattern` so the
+  SOC can alert on the attempted workflow abuse
+- valid totals log with `reason=server_validated_checkout` and no signal
+
+This scenario models insecure design as a broken workflow decision rather than
+an input parsing flaw. No payment is processed and no order is persisted.
 
 ## Assumptions
 

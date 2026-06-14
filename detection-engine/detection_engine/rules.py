@@ -16,6 +16,8 @@ SSRF_RULE_ID = "WEB-SSRF-INTERNAL-001"
 CONFIG_EXPOSURE_RULE_ID = "CONFIG-EXPOSURE-001"
 CRYPTO_WEAK_RULE_ID = "CRYPTO-WEAK-001"
 LOGGING_FAILURE_RULE_ID = "LOG-GAP-001"
+UNSAFE_DESERIALIZATION_RULE_ID = "INTEGRITY-DESERIALIZE-001"
+BUSINESS_LOGIC_RULE_ID = "DESIGN-LOGIC-001"
 SEVERITY = "Medium"
 SEVERITY_HIGH = "High"
 FAILURE_THRESHOLD = 5
@@ -27,6 +29,8 @@ SSRF_SIGNAL = "ssrf_internal_target_pattern"
 CONFIG_EXPOSURE_SIGNAL = "config_exposure_pattern"
 WEAK_HASH_SIGNAL = "weak_password_hash_pattern"
 LOGGING_FAILURE_SIGNAL = "logging_failure_pattern"
+UNSAFE_DESERIALIZATION_SIGNAL = "unsafe_deserialization_pattern"
+BUSINESS_LOGIC_SIGNAL = "business_logic_abuse_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -41,6 +45,8 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
         *detect_config_exposure(events),
         *detect_weak_crypto(events),
         *detect_logging_failures(events),
+        *detect_unsafe_deserialization(events),
+        *detect_business_logic_abuse(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -342,6 +348,90 @@ def detect_logging_failures(events: list[LogEvent]) -> list[DetectionFinding]:
                     f"Logging & alerting failure: sensitive action {action!r} on {target_user!r} "
                     f"via {request_path} left no audit or alert record (actor {event.username!r} "
                     f"from {event.source_ip})"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_unsafe_deserialization(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect serialized profile imports that trust privileged client fields.
+
+    The vulnerable app logs a ``profile_import`` event carrying the
+    ``unsafe_deserialization_pattern`` signal whenever an imported serialized
+    profile object includes privileged fields (for example ``role`` or
+    ``feature_flags``) and insecure mode trusts them. Secure-mode imports reject
+    those fields and log without the signal, so they do not match.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "profile_import":
+            continue
+        if event.raw.get("signal") != UNSAFE_DESERIALIZATION_SIGNAL:
+            continue
+
+        request_path = str(event.raw.get("request_path") or "unknown")
+        privileged = event.raw.get("privileged_keys") or []
+        if isinstance(privileged, list):
+            privileged_str = ", ".join(str(key) for key in privileged) or "unknown"
+        else:
+            privileged_str = str(privileged)
+        findings.append(
+            DetectionFinding(
+                rule_id=UNSAFE_DESERIALIZATION_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Unsafe deserialization/object trust: profile import on {request_path} "
+                    f"trusted privileged client-controlled fields ({privileged_str}) for "
+                    f"{event.username!r} from {event.source_ip}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_business_logic_abuse(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect checkout events that abuse client-controlled business logic.
+
+    The vulnerable app logs a ``business_action`` event carrying the
+    ``business_logic_abuse_pattern`` signal when checkout receives a
+    client-submitted final total below the server-calculated minimum. Insecure
+    mode processes the order; secure mode rejects it. Both are detection-worthy
+    attempts because the workflow request abuses a bad trust boundary.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "business_action":
+            continue
+        if event.raw.get("signal") != BUSINESS_LOGIC_SIGNAL:
+            continue
+
+        action = str(event.raw.get("action") or "unknown")
+        request_path = str(event.raw.get("request_path") or "unknown")
+        client_total = str(event.raw.get("client_total") or "unknown")
+        allowed_minimum = str(event.raw.get("allowed_minimum") or "unknown")
+        findings.append(
+            DetectionFinding(
+                rule_id=BUSINESS_LOGIC_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Business logic abuse: {action!r} on {request_path} submitted "
+                    f"client-controlled total {client_total} below server-calculated "
+                    f"minimum {allowed_minimum} for {event.username!r} from {event.source_ip}"
                 ),
             )
         )
