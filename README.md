@@ -2,8 +2,6 @@
 
 # OWASP Lab Detection Engine
 
-> **Attack it, log it, detect it — learn the OWASP Top 10.**
-
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0-lightgrey)
 [![tests](https://github.com/n1wo/owasp-lab-detection-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/n1wo/owasp-lab-detection-engine/actions/workflows/tests.yml)
