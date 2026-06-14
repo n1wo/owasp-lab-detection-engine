@@ -4,6 +4,8 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DETECTION_ENGINE_ROOT = ROOT / "detection-engine"
@@ -52,21 +54,13 @@ def read_mitre_rule_ids() -> set[str]:
     return set(re.findall(r"\| `([A-Z0-9-]+)` \|", text))
 
 
-def top_level_yaml_fields(text: str) -> set[str]:
-    """Extract simple top-level YAML keys without requiring a YAML dependency."""
+def load_sigma_rule(file_name: str) -> dict:
+    """Parse a Sigma-style YAML file and return its mapping."""
 
-    return {
-        line.split(":", 1)[0]
-        for line in text.splitlines()
-        if line and not line.startswith((" ", "-")) and ":" in line
-    }
-
-
-def field_value(text: str, field: str) -> str:
-    """Return the scalar value for a simple top-level YAML field."""
-
-    match = re.search(rf"^{re.escape(field)}:\s*(.+)$", text, flags=re.MULTILINE)
-    return match.group(1).strip() if match else ""
+    with (SIGMA_DIR / file_name).open(encoding="utf-8") as handle:
+        data = yaml.safe_load(handle)
+    assert isinstance(data, dict)
+    return data
 
 
 def test_every_detection_rule_has_mitre_mapping():
@@ -89,19 +83,25 @@ def test_sigma_rules_have_required_fields_and_valid_rule_ids():
     known_rule_ids = implemented_rule_ids()
     for file_name, expected_rule_id in EXPECTED_SIGMA_RULES.items():
         text = (SIGMA_DIR / file_name).read_text(encoding="utf-8")
+        rule = load_sigma_rule(file_name)
         assert "\t" not in text
-        assert REQUIRED_SIGMA_FIELDS <= top_level_yaml_fields(text)
-        assert field_value(text, "status") == "experimental"
-        assert field_value(text, "author") == "n1wo"
-        assert field_value(text, "rule_id") == expected_rule_id
-        assert field_value(text, "rule_id") in known_rule_ids
+        assert REQUIRED_SIGMA_FIELDS <= set(rule)
+        assert rule["status"] == "experimental"
+        assert rule["author"] == "n1wo"
+        assert rule["rule_id"] == expected_rule_id
+        assert rule["rule_id"] in known_rule_ids
+        assert isinstance(rule["logsource"], dict)
+        assert isinstance(rule["detection"], dict)
+        assert isinstance(rule["fields"], list)
+        assert isinstance(rule["falsepositives"], list)
+        assert isinstance(rule["tags"], list)
+        assert rule["detection"].get("condition")
 
 
 def test_sigma_rules_use_project_log_fields_and_attack_tags():
     for file_name in EXPECTED_SIGMA_RULES:
-        text = (SIGMA_DIR / file_name).read_text(encoding="utf-8")
-        assert "event_type:" in text
-        assert "condition:" in text
-        assert "source_ip" in text
-        assert "username" in text
-        assert "attack." in text
+        rule = load_sigma_rule(file_name)
+        assert "event_type" in str(rule["detection"])
+        assert "source_ip" in rule["fields"]
+        assert "username" in rule["fields"]
+        assert any(str(tag).startswith("attack.") for tag in rule["tags"])
