@@ -1,0 +1,36 @@
+title: OWASP Lab SQL Injection-Like Input Pattern
+id: 1e493df7-3a84-4a34-a3ce-c2cf00302a45
+rule_id: WEB-SQLI-PATTERN-001
+status: experimental
+description: Detects SQL injection-like input submitted to the local lab search route.
+author: n1wo
+date: 2026-06-14
+logsource:
+  product: owasp-lab
+  service: vulnerable-app
+  category: application
+detection:
+  selection:
+    event_type: suspicious_input
+    signal: sql_injection_like_pattern
+    request_path: /search
+  condition: selection
+fields:
+  - timestamp
+  - event_type
+  - source_ip
+  - username
+  - request_path
+  - input_name
+  - input_value
+  - signal
+  - status_code
+  - lab_mode
+falsepositives:
+  - Local lab SQLi practice payloads
+  - Security testing in the intentionally vulnerable training app
+level: medium
+tags:
+  - attack.initial_access
+  - attack.t1190
+  - owasp_lab.web_sqli_pattern

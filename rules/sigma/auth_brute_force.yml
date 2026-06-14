@@ -1,0 +1,33 @@
+title: OWASP Lab Repeated Failed Login Attempts
+id: 6bfc8c6a-ff40-4d9d-9d46-5f18c72e4a01
+rule_id: AUTH-BRUTE-FORCE-001
+status: experimental
+description: Detects repeated failed login attempts for the same local lab username and source IP within a short time window.
+author: n1wo
+date: 2026-06-14
+logsource:
+  product: owasp-lab
+  service: vulnerable-app
+  category: application
+detection:
+  selection:
+    event_type: login_failure
+  timeframe: 5m
+  condition: selection | count(username) by source_ip, username >= 5
+fields:
+  - timestamp
+  - event_type
+  - source_ip
+  - username
+  - request_path
+  - status_code
+  - lab_mode
+  - reason
+falsepositives:
+  - Local lab testing with repeated failed passwords
+  - User mistyping a password several times during a demo
+level: medium
+tags:
+  - attack.credential_access
+  - attack.t1110
+  - owasp_lab.auth_brute_force

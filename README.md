@@ -117,6 +117,8 @@ flowchart LR
 |-- logs/                             # Sample and generated JSONL telemetry
 |   |-- README.md
 |   `-- sample-logs.jsonl
+|-- rules/                            # SIEM-oriented learning rules
+|   `-- sigma/
 |-- scripts/                          # Local-only demo helpers
 |   |-- generate_login_demo.py
 |   |-- generate_sqli_demo.py
@@ -669,6 +671,31 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 | `INTEGRITY-DESERIALIZE-001` | Detect serialized profile imports that trust privileged client-controlled fields | `profile_import` event with `signal=unsafe_deserialization_pattern` | High | Implemented |
 | `DESIGN-LOGIC-001` | Detect checkout requests that abuse client-controlled business logic | `business_action` event with `signal=business_logic_abuse_pattern` | High | Implemented |
 
+## Detection Rule Mapping
+
+The project now documents each detection at three levels:
+
+- internal Python detections in `detection-engine/detection_engine/rules.py`
+- MITRE ATT&CK mappings in [docs/mitre-attack-mapping.md](docs/mitre-attack-mapping.md)
+- Sigma-style YAML rules in [rules/sigma](rules/sigma) for SIEM-oriented learning
+
+These Sigma files are intentionally small and lab-specific. They are meant to
+show how local JSONL fields could map into SIEM rule thinking, not to claim
+production-ready SIEM coverage.
+
+| Internal Rule | Description | MITRE ATT&CK | Sigma Rule |
+| --- | --- | --- | --- |
+| `AUTH-BRUTE-FORCE-001` | Repeated failed login attempts | T1110 Brute Force | [auth_brute_force.yml](rules/sigma/auth_brute_force.yml) |
+| `WEB-SQLI-PATTERN-001` | SQL injection-like input submitted to `/search` | T1190 Exploit Public-Facing Application | [web_sqli_pattern.yml](rules/sigma/web_sqli_pattern.yml) |
+| `WEB-XSS-PATTERN-001` | XSS-like input submitted to `/comment` | T1190 Exploit Public-Facing Application | Not yet added |
+| `BAC-PRIV-ESC-001` | Admin panel reached through broken access control | T1190 Exploit Public-Facing Application | Not yet added |
+| `WEB-SSRF-INTERNAL-001` | Server-side fetch aimed at an internal target | T1190 Exploit Public-Facing Application | Not yet added |
+| `CONFIG-EXPOSURE-001` | Debug endpoint exposes sensitive configuration | T1552.001 Credentials In Files | Not yet added |
+| `CRYPTO-WEAK-001` | Password material stored with weak hashing | T1552.001 Credentials In Files | Not yet added |
+| `LOG-GAP-001` | Sensitive action performed without audit visibility | T1562 Impair Defenses | Not yet added |
+| `INTEGRITY-DESERIALIZE-001` | Serialized profile import trusts privileged fields | T1190 Exploit Public-Facing Application | Not yet added |
+| `DESIGN-LOGIC-001` | Checkout trusts a client-controlled final total | T1565 Data Manipulation | Not yet added |
+
 ## Log Schema
 
 | Field | Description | Example |
@@ -731,6 +758,7 @@ Current test coverage includes:
 - [Architecture](docs/architecture.md)
 - [Demo Walkthrough](docs/demo.md)
 - [Detection Rules](docs/detection-rules.md)
+- [MITRE ATT&CK Mapping](docs/mitre-attack-mapping.md)
 - [Threat Model](docs/threat-model.md)
 - [Security Policy](SECURITY.md)
 - [Agent Guidance](AGENTS.md)
