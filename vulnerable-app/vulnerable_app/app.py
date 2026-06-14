@@ -47,6 +47,29 @@ ENTITLEMENT_PLANS = {"free", "premium"}
 # A deliberately malformed "premium" token: invalid base64 (contains '.' and '-')
 # so the entitlement check raises and the fail-open path is exercised.
 ENTITLEMENT_SAMPLE_TOKEN = "premium.eyJwbGFuIjoicHJlbWl1bSJ9.t4mp3r-ed"
+SUPPLY_CHAIN_SIGNAL = "supply_chain_compromise_pattern"
+# Pinned integrity hashes for the lab's known-good third-party components. A
+# component whose declared integrity does not match its pinned baseline is a
+# tampered or swapped build artifact.
+PINNED_COMPONENTS = {
+    "analytics-sdk": "sha256-f1d2c3b4a596877869504b3c2d1e0f00112233445566778899aabbccddeeff00",
+    "payment-widget": "sha256-0011223344556677889900aabbccddeeff112233445566778899aabbccddee11",
+    "logging-agent": "sha256-99aabbccddeeff00112233445566778899aabbccddeeff0011223344556677ab",
+}
+# Default manifest: payment-widget carries a tampered integrity hash, so insecure
+# mode installs an unverified artifact while secure mode rejects it.
+COMPONENT_MANIFEST_SAMPLE = json.dumps(
+    [
+        {"name": "analytics-sdk", "version": "1.4.2", "integrity": PINNED_COMPONENTS["analytics-sdk"]},
+        {
+            "name": "payment-widget",
+            "version": "2.0.1",
+            "integrity": "sha256-deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        },
+        {"name": "logging-agent", "version": "0.9.5", "integrity": PINNED_COMPONENTS["logging-agent"]},
+    ],
+    indent=2,
+)
 PBKDF2_ITERATIONS = 200_000
 SSRF_ALLOWED_SCHEMES = {"http", "https"}
 SSRF_INTERNAL_HOSTNAMES = {"localhost", "metadata", "metadata.google.internal"}
@@ -917,6 +940,110 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             error_detail=None,
         )
 
+    @app.get("/integrations")
+    def integrations_form() -> Response | str:
+        """Render the software-supply-chain component-sync scenario."""
+
+        return render_template_string(
+            INTEGRATIONS_TEMPLATE,
+            mode=_mode(),
+            manifest=COMPONENT_MANIFEST_SAMPLE,
+            result=None,
+            message=None,
+        )
+
+    @app.post("/integrations")
+    def integrations() -> Response | str:
+        """Sync third-party components with mode-dependent integrity checks.
+
+        Insecure mode trusts the manifest and installs every component without
+        verifying its declared integrity hash against the pinned baseline, so a
+        tampered or swapped artifact is loaded. Secure mode verifies each
+        component and rejects anything that is tampered or unknown. Both log a
+        ``dependency_load`` event; only the unverified install carries the
+        ``supply_chain_compromise_pattern`` signal.
+        """
+
+        payload = request.form.get("manifest", "").strip()
+        source_ip = _source_ip()
+        request_id = str(uuid.uuid4())
+
+        try:
+            components = _load_component_manifest(payload)
+        except ValueError as exc:
+            _log_dependency_load_event(
+                logger,
+                request_id=request_id,
+                source_ip=source_ip,
+                status_code=400,
+                components=[],
+                compromised_components=[],
+                reason="invalid_component_manifest",
+                signal=None,
+                success=False,
+            )
+            return (
+                render_template_string(
+                    INTEGRATIONS_TEMPLATE,
+                    mode=_mode(),
+                    manifest=payload,
+                    result=None,
+                    message=str(exc),
+                ),
+                400,
+            )
+
+        resolved = _verify_components(components)
+        compromised = [c["name"] for c in resolved if c["status"] != "verified"]
+        component_names = [c["name"] for c in resolved]
+
+        if _mode() == "secure" and compromised:
+            _log_dependency_load_event(
+                logger,
+                request_id=request_id,
+                source_ip=source_ip,
+                status_code=400,
+                components=component_names,
+                compromised_components=compromised,
+                reason="rejected_untrusted_component",
+                signal=None,
+                success=False,
+            )
+            return (
+                render_template_string(
+                    INTEGRATIONS_TEMPLATE,
+                    mode=_mode(),
+                    manifest=payload,
+                    result={"components": resolved, "installed": False, "compromised": compromised},
+                    message="Component sync rejected: integrity verification failed.",
+                ),
+                400,
+            )
+
+        signal = SUPPLY_CHAIN_SIGNAL if (_mode() == "insecure" and compromised) else None
+        _log_dependency_load_event(
+            logger,
+            request_id=request_id,
+            source_ip=source_ip,
+            status_code=200,
+            components=component_names,
+            compromised_components=compromised,
+            reason=(
+                "unverified_component_integrity"
+                if signal
+                else "verified_component_integrity"
+            ),
+            signal=signal,
+            success=True,
+        )
+        return render_template_string(
+            INTEGRATIONS_TEMPLATE,
+            mode=_mode(),
+            manifest=payload,
+            result={"components": resolved, "installed": True, "compromised": compromised},
+            message=None,
+        )
+
     @app.get("/debug")
     def debug() -> Response | str:
         """Diagnostics endpoint left enabled by an intentional misconfiguration.
@@ -1267,6 +1394,55 @@ def _verify_entitlement(token: str) -> dict[str, Any]:
     return {"plan": plan, "premium": plan == "premium"}
 
 
+def _load_component_manifest(payload: str) -> list[dict[str, Any]]:
+    """Parse a third-party component manifest, raising ValueError if malformed.
+
+    A valid manifest is a JSON array of objects, each with ``name``, ``version``,
+    and ``integrity`` fields. Anything else is rejected before verification.
+    """
+
+    try:
+        manifest = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError("component manifest must be valid JSON") from exc
+    if not isinstance(manifest, list) or not manifest:
+        raise ValueError("component manifest must be a non-empty JSON array")
+    components: list[dict[str, Any]] = []
+    for entry in manifest:
+        if not isinstance(entry, dict) or not {"name", "version", "integrity"} <= set(entry):
+            raise ValueError("each component needs name, version, and integrity fields")
+        components.append(
+            {
+                "name": str(entry["name"]),
+                "version": str(entry["version"]),
+                "integrity": str(entry["integrity"]),
+            }
+        )
+    return components
+
+
+def _verify_components(components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Resolve each declared component against the pinned integrity baseline.
+
+    Returns the components annotated with a ``status`` of ``verified`` (declared
+    integrity matches the pinned baseline), ``tampered`` (known component, hash
+    mismatch), or ``unknown`` (no pinned baseline for that name).
+    """
+
+    resolved: list[dict[str, Any]] = []
+    for component in components:
+        name = component["name"]
+        pinned = PINNED_COMPONENTS.get(name)
+        if pinned is None:
+            status = "unknown"
+        elif hmac.compare_digest(pinned, component["integrity"]):
+            status = "verified"
+        else:
+            status = "tampered"
+        resolved.append({**component, "status": status})
+    return resolved
+
+
 def _exposed_config() -> dict[str, str]:
     """Collect the sensitive configuration the insecure debug endpoint leaks.
 
@@ -1506,6 +1682,19 @@ def _soc_alert_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
                 f"Entitlement check on {event.get('request_path', 'unknown path')} failed open on "
                 f"{event.get('error_type', 'an error')}, granting access and leaking error detail "
                 "(mishandling of exceptional conditions)."
+            ),
+        )
+    if event_type == "dependency_load" and signal == SUPPLY_CHAIN_SIGNAL:
+        compromised = ", ".join(event.get("compromised_components") or []) or "unknown"
+        return _soc_alert(
+            event,
+            severity="High",
+            title="Unverified third-party component loaded",
+            rule="SUPPLY-CHAIN-001",
+            detail=(
+                f"Component sync on {event.get('request_path', 'unknown path')} installed "
+                f"component(s) ({compromised}) without verifying integrity against the pinned "
+                "baseline (software supply chain failure)."
             ),
         )
     return None
@@ -1778,6 +1967,35 @@ def _log_exception_handling_event(
     )
 
 
+def _log_dependency_load_event(
+    logger: JsonlLogger,
+    *,
+    request_id: str,
+    source_ip: str,
+    status_code: int,
+    components: list[str],
+    compromised_components: list[str],
+    reason: str,
+    signal: str | None,
+    success: bool,
+) -> None:
+    """Write one structured component-sync event for supply-chain detection."""
+
+    logger.write(
+        {
+            "event_type": "dependency_load",
+            "source_ip": source_ip or "127.0.0.1",
+            "username": "anonymous",
+            **_common_event_fields(status_code, request_id),
+            "reason": reason,
+            "signal": signal,
+            "components": components,
+            "compromised_components": compromised_components,
+            "success": success,
+        }
+    )
+
+
 BASE_STYLES = """
       :root {
         --bg: #0b1120;
@@ -1986,6 +2204,7 @@ NAV_SNIPPET = """
     <a href="/profile/import">Integrity &middot; Profile import</a>
     <a href="/checkout">Design &middot; Checkout</a>
     <a href="/entitlement">Exceptions &middot; Entitlement</a>
+    <a href="/integrations">Supply chain &middot; Integrations</a>
     <div class="labnav-group">Detection</div>
     <a href="/soc">SOC &middot; Findings report</a>
     <div class="labnav-group">Vulnerabilities</div>
@@ -2204,6 +2423,11 @@ HOME_TEMPLATE = """
             <div class="rule">FAIL-OPEN-001</div>
             <div class="name">Mishandled exceptions</div>
             <p class="desc">Submit a tampered entitlement token. Insecure mode fails open and leaks the traceback; secure mode fails closed.</p>
+          </a>
+          <a class="scenario" href="/integrations">
+            <div class="rule">SUPPLY-CHAIN-001</div>
+            <div class="name">Software supply chain</div>
+            <p class="desc">Sync a component manifest with a tampered integrity hash. Insecure mode installs it unverified; secure mode rejects it.</p>
           </a>
         </div>
       </div>
@@ -2913,6 +3137,100 @@ ENTITLEMENT_TEMPLATE = """
       {% endif %}
     </div>
     <div class="footer">FAIL-OPEN-001 &middot; logs/application.jsonl</div>
+    {nav}
+  </body>
+</html>
+""".replace("{styles}", BASE_STYLES).replace("{nav}", NAV_SNIPPET)
+
+
+INTEGRATIONS_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OWASP Lab &middot; Integrations</title>
+    <style>{styles}
+      textarea {
+        min-height: 12rem;
+        resize: vertical;
+        font-family: var(--mono);
+        line-height: 1.45;
+      }
+      .store-dump { margin: 1.2rem 0 0; padding: 0; list-style: none; }
+      .store-dump li {
+        display: flex; gap: 0.8rem; align-items: baseline; flex-wrap: wrap;
+        font-family: var(--mono); font-size: 0.82rem;
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+        background: rgba(255, 255, 255, 0.02); overflow-wrap: anywhere;
+      }
+      .store-dump .k { color: var(--text); min-width: 9rem; }
+      .store-dump .v { color: var(--text-faint); }
+      .store-dump .status { margin-left: auto; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; }
+      .store-dump .status.verified { color: var(--ok); }
+      .store-dump .status.tampered, .store-dump .status.unknown { color: var(--warn-text); }
+      h2 { margin: 1.4rem 0 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body>
+    <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
+    <div class="card">
+      <div class="title-row">
+        <h1>Component sync</h1>
+        <button type="button" class="help-btn" onclick="openHelp()" title="Explain this vulnerability" aria-label="Explain this vulnerability">?</button>
+      </div>
+      <div class="help-overlay" id="helpOverlay" onclick="if(event.target===this)closeHelp()">
+        <div class="help-modal" role="dialog" aria-modal="true">
+          <button class="help-close" type="button" onclick="closeHelp()" aria-label="Close">&times;</button>
+          <div class="help-rule">OWASP A03 &middot; SUPPLY-CHAIN-001 &middot; High</div>
+          <h3>Software supply chain failures</h3>
+          <p>Third-party components are trusted code. If the app installs whatever a manifest declares without verifying it against a pinned baseline, a tampered or swapped build artifact runs with full trust.</p>
+          <h4>Try it</h4>
+          <p>Submit the sample manifest &mdash; the <code>payment-widget</code> entry carries an integrity hash that does not match its pinned baseline. Insecure mode installs it anyway; secure mode rejects the sync.</p>
+          <h4>Insecure vs secure</h4>
+          <div class="help-vs">
+            <div class="ins"><strong>Insecure:</strong> every declared component is installed without checking its integrity hash.</div>
+            <div class="sec"><strong>Secure:</strong> each component's integrity is verified against a pinned baseline; tampered or unknown components are rejected.</div>
+          </div>
+          <h4>What gets detected</h4>
+          <p>A <code>dependency_load</code> event with signal <code>supply_chain_compromise_pattern</code> raises <strong>SUPPLY-CHAIN-001</strong>.</p>
+        </div>
+      </div>
+      <script>
+        function openHelp(){document.getElementById('helpOverlay').classList.add('open');}
+        function closeHelp(){document.getElementById('helpOverlay').classList.remove('open');}
+        document.addEventListener('keydown',function(e){if(e.key==='Escape')closeHelp();});
+      </script>
+      <p class="subtitle">Supply-chain lab &mdash; component syncs are logged as JSONL.</p>
+      <div class="badges">
+        <span class="badge">local-lab</span>
+        <span class="badge mode-{{ mode }}">mode: {{ mode }}</span>
+      </div>
+      <div class="notice warning">&#9888;&#65039;&nbsp; Local educational lab only. No component is installed &mdash; this only demonstrates unverified third-party integrity.</div>
+      {% if message %}<div class="notice error">&#9940;&nbsp; {{ message }}</div>{% endif %}
+      <form method="post" action="/integrations">
+        <label>
+          Component manifest JSON
+          <textarea name="manifest" spellcheck="false">{{ manifest }}</textarea>
+        </label>
+        <button type="submit">Sync components</button>
+      </form>
+      {% if result %}
+        {% if result.installed and result.compromised %}
+        <div class="notice error" style="margin-top:1rem;">&#9940;&nbsp; Unverified component(s) were installed without integrity checks. This is logged as <strong>SUPPLY-CHAIN-001</strong>.</div>
+        {% elif result.installed %}
+        <div class="notice" style="margin-top:1rem;">&#9989;&nbsp; All components matched the pinned integrity baseline. No detection signal is raised.</div>
+        {% else %}
+        <div class="notice" style="margin-top:1rem;">&#9989;&nbsp; Component sync rejected after integrity verification. No detection signal is raised.</div>
+        {% endif %}
+        <h2>Resolved components</h2>
+        <ul class="store-dump">
+          {% for component in result.components %}<li><span class="k">{{ component.name }}</span><span class="v">{{ component.version }}</span><span class="status {{ component.status }}">{{ component.status }}</span></li>{% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+    <div class="footer">SUPPLY-CHAIN-001 &middot; logs/application.jsonl</div>
     {nav}
   </body>
 </html>

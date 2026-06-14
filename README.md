@@ -13,7 +13,7 @@ combines a deliberately vulnerable Flask web app, structured JSONL security
 telemetry, a Python detection engine, and reproducible localhost demo
 workflows.
 
-The project currently covers eleven OWASP-oriented scenarios: it detects
+The project currently covers twelve OWASP-oriented scenarios: it detects
 repeated failed login attempts with `AUTH-BRUTE-FORCE-001`, SQL-injection-like
 input with `WEB-SQLI-PATTERN-001`, XSS-like input with `WEB-XSS-PATTERN-001`,
 admin-panel privilege escalation with `BAC-PRIV-ESC-001`, server-side
@@ -23,8 +23,9 @@ sensitive configuration disclosed by an exposed debug endpoint with
 `CRYPTO-WEAK-001`, and sensitive actions performed without an audit or alert
 trail with `LOG-GAP-001`, plus unsafe serialized profile imports with
 `INTEGRITY-DESERIALIZE-001`, checkout business-logic abuse with
-`DESIGN-LOGIC-001`, and access checks that fail open on a mishandled
-exception with `FAIL-OPEN-001`.
+`DESIGN-LOGIC-001`, access checks that fail open on a mishandled exception with
+`FAIL-OPEN-001`, and third-party components loaded without integrity
+verification with `SUPPLY-CHAIN-001`.
 
 > **Safety warning:** This project contains intentionally vulnerable examples
 > for local educational use only. Do not deploy it to the public internet and
@@ -61,6 +62,7 @@ This project demonstrates:
 - [x] Profile import page with unsafe object trust (`/profile/import`)
 - [x] Checkout page with client-controlled price abuse (`/checkout`)
 - [x] Entitlement page with fail-open exception handling (`/entitlement`)
+- [x] Component sync page with unverified third-party integrity (`/integrations`)
 - [x] Detection rule `AUTH-BRUTE-FORCE-001`
 - [x] Detection rule `WEB-SQLI-PATTERN-001`
 - [x] Detection rule `WEB-XSS-PATTERN-001`
@@ -72,6 +74,7 @@ This project demonstrates:
 - [x] Detection rule `INTEGRITY-DESERIALIZE-001`
 - [x] Detection rule `DESIGN-LOGIC-001`
 - [x] Detection rule `FAIL-OPEN-001`
+- [x] Detection rule `SUPPLY-CHAIN-001`
 - [x] CLI with human-readable and JSON output
 - [x] Live SOC alerts at `/soc` from local app telemetry
 - [x] Self-contained HTML findings dashboard via `--html`
@@ -188,7 +191,7 @@ python -m pytest
 Current expected result:
 
 ```text
-152 passed
+162 passed
 ```
 
 On Windows/OneDrive, pytest may print cache or temp-directory warnings even
@@ -821,14 +824,16 @@ Planned:
 
 ### OWASP Top 10:2025 Coverage
 
-The lab is organized around the [OWASP Top 10:2025](https://owasp.org/Top10/2025/).
-Note that in the 2025 edition SSRF rolled into A01 Broken Access Control, and
-SQL injection and XSS both sit under A05 Injection.
+The lab is organized around the [OWASP Top 10:2025](https://owasp.org/Top10/2025/),
+and now covers all ten categories. Note that in the 2025 edition SSRF rolled into
+A01 Broken Access Control, and SQL injection and XSS both sit under A05 Injection.
 
 Covered:
 
 - [x] A01 Broken Access Control - `BAC-PRIV-ESC-001`, `WEB-SSRF-INTERNAL-001`
 - [x] A02 Security Misconfiguration - `CONFIG-EXPOSURE-001` (exposed debug endpoint)
+- [x] A03 Software Supply Chain Failures - `SUPPLY-CHAIN-001` (component installed
+  without integrity verification)
 - [x] A04 Cryptographic Failures - `CRYPTO-WEAK-001` (weak password hashing)
 - [x] A05 Injection - `WEB-SQLI-PATTERN-001`, `WEB-XSS-PATTERN-001`
 - [x] A06 Insecure Design - `DESIGN-LOGIC-001` (client-controlled checkout total)
@@ -838,13 +843,6 @@ Covered:
 - [x] A09 Security Logging & Alerting Failures - `LOG-GAP-001` (unaudited admin action)
 - [x] A10 Mishandling of Exceptional Conditions - `FAIL-OPEN-001` (entitlement check
   fails open and leaks a stack trace on error)
-
-Planned scenarios (each: vulnerable route, secure-mode comparison, JSONL signal,
-detection rule, tests, docs):
-
-- [ ] A03 Software Supply Chain Failures - known-bad pinned dependency or tampered
-  build artifact; static manifest/lockfile check rather than runtime telemetry
-  (lower feasibility for this log-driven lab)
 
 ## Portfolio Relevance
 

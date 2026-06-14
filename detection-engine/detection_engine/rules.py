@@ -19,6 +19,7 @@ LOGGING_FAILURE_RULE_ID = "LOG-GAP-001"
 UNSAFE_DESERIALIZATION_RULE_ID = "INTEGRITY-DESERIALIZE-001"
 BUSINESS_LOGIC_RULE_ID = "DESIGN-LOGIC-001"
 FAIL_OPEN_RULE_ID = "FAIL-OPEN-001"
+SUPPLY_CHAIN_RULE_ID = "SUPPLY-CHAIN-001"
 SEVERITY = "Medium"
 SEVERITY_HIGH = "High"
 FAILURE_THRESHOLD = 5
@@ -33,6 +34,7 @@ LOGGING_FAILURE_SIGNAL = "logging_failure_pattern"
 UNSAFE_DESERIALIZATION_SIGNAL = "unsafe_deserialization_pattern"
 BUSINESS_LOGIC_SIGNAL = "business_logic_abuse_pattern"
 FAIL_OPEN_SIGNAL = "fail_open_pattern"
+SUPPLY_CHAIN_SIGNAL = "supply_chain_compromise_pattern"
 
 
 def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
@@ -50,6 +52,7 @@ def detect_all(events: list[LogEvent]) -> list[DetectionFinding]:
         *detect_unsafe_deserialization(events),
         *detect_business_logic_abuse(events),
         *detect_fail_open(events),
+        *detect_supply_chain(events),
     ]
     return sorted(findings, key=lambda finding: (finding.first_seen, finding.rule_id, finding.source_ip))
 
@@ -477,6 +480,50 @@ def detect_fail_open(events: list[LogEvent]) -> list[DetectionFinding]:
                     f"Mishandled exceptional condition: {request_path} failed open on "
                     f"{error_type!r}, granting access despite the error{leak_clause} "
                     f"from {event.source_ip}"
+                ),
+            )
+        )
+
+    return sorted(findings, key=lambda finding: (finding.first_seen, finding.source_ip, finding.username))
+
+
+def detect_supply_chain(events: list[LogEvent]) -> list[DetectionFinding]:
+    """Detect third-party components loaded without verifying their integrity.
+
+    The vulnerable app logs a ``dependency_load`` event carrying the
+    ``supply_chain_compromise_pattern`` signal whenever insecure mode installs
+    components from a manifest without checking their declared integrity hash
+    against the pinned baseline, so a tampered or known-bad artifact is trusted.
+    Secure mode verifies each component, rejects mismatches, and logs without the
+    signal, so a verified sync does not match.
+    """
+
+    findings: list[DetectionFinding] = []
+    for event in events:
+        if event.event_type != "dependency_load":
+            continue
+        if event.raw.get("signal") != SUPPLY_CHAIN_SIGNAL:
+            continue
+
+        request_path = str(event.raw.get("request_path") or "unknown")
+        compromised = event.raw.get("compromised_components") or []
+        if isinstance(compromised, list):
+            compromised_str = ", ".join(str(name) for name in compromised) or "unknown"
+        else:
+            compromised_str = str(compromised)
+        findings.append(
+            DetectionFinding(
+                rule_id=SUPPLY_CHAIN_RULE_ID,
+                severity=SEVERITY_HIGH,
+                source_ip=event.source_ip,
+                username=event.username,
+                event_count=1,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                reason=(
+                    f"Software supply chain failure: {request_path} loaded component(s) "
+                    f"({compromised_str}) without verifying integrity against the pinned "
+                    f"baseline from {event.source_ip}"
                 ),
             )
         )

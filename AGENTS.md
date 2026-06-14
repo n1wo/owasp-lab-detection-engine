@@ -37,12 +37,14 @@ type → signal → rule):
 | A06 Insecure Design | `/checkout` | `business_action` | `business_logic_abuse_pattern` | `DESIGN-LOGIC-001` | High |
 | A08 Software/Data Integrity Failures | `/profile/import` | `profile_import` | `unsafe_deserialization_pattern` | `INTEGRITY-DESERIALIZE-001` | High |
 | A10 Mishandling of Exceptional Conditions | `/entitlement` | `exception_handling` | `fail_open_pattern` | `FAIL-OPEN-001` | High |
+| A03 Software Supply Chain Failures | `/integrations` | `dependency_load` | `supply_chain_compromise_pattern` | `SUPPLY-CHAIN-001` | High |
 
 Note: in OWASP 2025, SSRF rolled into A01, and SQLi/XSS sit under A05. In-app
 help popups use 2025 numbering.
 
-Planned next (see the Roadmap in `README.md`): A03 Software Supply Chain
-Failures (a static manifest/lockfile check rather than runtime telemetry).
+All ten OWASP Top 10:2025 categories are now covered. New scenarios should keep
+the established pattern: vulnerable route → JSONL event + signal → `detect_*`
+rule → secure/insecure `LAB_MODE` split → tests and docs.
 
 ## Repository Layout
 
