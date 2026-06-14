@@ -603,9 +603,9 @@ python -m detection_engine --log-file ../logs/application.jsonl --json
 
 ## Security Logging & Alerting Failures Scenario
 
-This scenario has no demo script. It is driven manually as the fictional local
-admin account against the `/admin/role` route, a sensitive privilege change
-that should always be audited.
+This scenario can be driven by the included demo script or manually as the
+fictional local admin account against the `/admin/role` route, a sensitive
+privilege change that should always be audited.
 
 In insecure mode the role change is performed with no audit or alert record. In
 secure mode the same action writes a full audit record and is marked alerted. No
@@ -658,6 +658,12 @@ role change:
 
 ```bash
 docker compose up --build
+python scripts/generate_logging_demo.py
+```
+
+Or trigger it directly with curl:
+
+```bash
 curl -c /tmp/owasp-lab-cookies -X POST \
   -d "username=admin&password=admin-password" \
   "http://127.0.0.1:8080/login"
