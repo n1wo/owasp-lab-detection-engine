@@ -1959,7 +1959,7 @@ HOME_TEMPLATE = """
     <div class="home">
       <a class="brand" href="/"><span class="dot"></span> OWASP Lab Detection Engine</a>
       <div class="hero">
-        <h1>A hands-on detection engineering lab</h1>
+        <h1>Attack it, log it, detect it — learn the OWASP Top 10</h1>
         <p>Attack a deliberately vulnerable app in your browser, watch each action become structured
            JSONL telemetry, then run the detection engine to see the attacks surface in a SOC-style
            findings report. Everything runs locally for learning only.</p>
