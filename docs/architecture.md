@@ -55,9 +55,9 @@ The Python detection engine reads local JSONL logs, normalizes events, applies
 implemented detection rules, and emits local findings. Current rules are
 `AUTH-BRUTE-FORCE-001`, `WEB-SQLI-PATTERN-001`, `WEB-XSS-PATTERN-001`,
 `BAC-PRIV-ESC-001`, `WEB-SSRF-INTERNAL-001`, `CONFIG-EXPOSURE-001`,
-`CRYPTO-WEAK-001`, `LOG-GAP-001`, `INTEGRITY-DESERIALIZE-001`, and
-`DESIGN-LOGIC-001`. The engine should focus on defensive detection behavior
-rather than offensive instructions.
+`CRYPTO-WEAK-001`, `LOG-GAP-001`, `INTEGRITY-DESERIALIZE-001`,
+`DESIGN-LOGIC-001`, `FAIL-OPEN-001`, and `SUPPLY-CHAIN-001`. The engine should
+focus on defensive detection behavior rather than offensive instructions.
 
 ### Optional SIEM/Wazuh Export
 

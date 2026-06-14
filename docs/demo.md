@@ -680,3 +680,133 @@ python -m detection_engine --log-file ../logs/application.jsonl
 python -m detection_engine --log-file ../logs/application.jsonl --json
 ```
 
+## Mishandling of Exceptional Conditions Scenario
+
+This scenario has no demo script. It is driven manually against the local
+`/entitlement` route, which verifies a premium-entitlement token.
+
+A malformed or tampered token makes the check raise. In insecure mode the error
+is swallowed, the check fails open (premium access granted), and the stack trace
+is leaked to the client. In secure mode the same error fails closed: access is
+denied with a generic message and no internal detail leaks.
+
+### Logs Generated
+
+The app writes an `exception_handling` event to:
+
+```text
+logs/application.jsonl
+```
+
+The exception-handling event includes:
+
+- `event_type`: `exception_handling`
+- `signal`: `fail_open_pattern` (insecure fail-open) or absent
+- `request_path`: `/entitlement`
+- `error_type`, `fail_open`, `stack_trace_leaked`, and `granted`
+- `reason`: `fail_open_on_exception`, `fail_closed_on_exception`, or
+  `entitlement_verified`
+- `lab_mode`
+
+### Why The Rule Triggers
+
+`FAIL-OPEN-001` triggers when the detection engine sees an `exception_handling`
+event with `signal` set to `fail_open_pattern`. Fail-closed secure-mode handling
+carries no signal and does not match.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `FAIL-OPEN-001`
+- `severity`: `High`
+- `source_ip`
+- `username`: `anonymous`
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app, then submit a tampered entitlement token:
+
+```bash
+docker compose up --build
+curl -X POST --data-urlencode 'token=premium.eyJwbGFuIjoicHJlbWl1bSJ9.t4mp3r-ed' "http://127.0.0.1:8080/entitlement"
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+
+## Software Supply Chain Failures Scenario
+
+This scenario has no demo script. It is driven manually against the local
+`/integrations` route, which syncs third-party components declared in a JSON
+manifest.
+
+In insecure mode the route installs every declared component without verifying
+its integrity hash against the pinned baseline, so a tampered or swapped
+artifact is trusted. In secure mode each component is verified and any
+tampered or unknown component is rejected.
+
+### Logs Generated
+
+The app writes a `dependency_load` event to:
+
+```text
+logs/application.jsonl
+```
+
+The dependency-load event includes:
+
+- `event_type`: `dependency_load`
+- `signal`: `supply_chain_compromise_pattern` (insecure unverified install) or
+  absent
+- `request_path`: `/integrations`
+- `components` and `compromised_components`
+- `reason`: `unverified_component_integrity`, `rejected_untrusted_component`, or
+  `verified_component_integrity`
+- `lab_mode`
+
+### Why The Rule Triggers
+
+`SUPPLY-CHAIN-001` triggers when the detection engine sees a `dependency_load`
+event with `signal` set to `supply_chain_compromise_pattern`. Verified and
+rejected syncs carry no signal and do not match.
+
+### Expected Finding
+
+The detection engine should emit a finding containing:
+
+- `rule_id`: `SUPPLY-CHAIN-001`
+- `severity`: `High`
+- `source_ip`
+- `username`: `anonymous`
+- `event_count`: `1`
+- `first_seen`
+- `last_seen`
+- `reason`
+
+### Commands
+
+Start the local app, then sync a manifest with a tampered integrity hash:
+
+```bash
+docker compose up --build
+curl -X POST --data-urlencode 'manifest=[{"name":"payment-widget","version":"2.0.1","integrity":"sha256-deadbeef"}]' "http://127.0.0.1:8080/integrations"
+```
+
+Run the detection engine:
+
+```bash
+cd detection-engine
+python -m detection_engine --log-file ../logs/application.jsonl
+python -m detection_engine --log-file ../logs/application.jsonl --json
+```
+

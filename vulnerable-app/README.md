@@ -4,9 +4,11 @@
 
 This folder contains the local-only vulnerable web application.
 
-The app currently implements a minimal login page, a local search page, and a
-local comment page with configuration-controlled insecure and secure modes plus
-structured JSONL logging.
+The app currently implements twelve OWASP-oriented scenarios spanning login,
+search, comment, access control, SSRF, debug exposure, registration, admin
+audit, profile import, checkout, exception handling, and component sync, each
+with configuration-controlled insecure and secure modes plus structured JSONL
+logging.
 
 It must remain suitable for local lab use only and must not be deployed
 publicly.
@@ -23,6 +25,8 @@ publicly.
 - sensitive admin action at `/admin/role` with mode-dependent audit logging
 - profile import page at `/profile/import` with unsafe serialized object trust
 - checkout page at `/checkout` with client-controlled price abuse
+- entitlement check at `/entitlement` that fails open on a mishandled exception
+- component sync at `/integrations` with unverified third-party integrity
 - live SOC alerts page at `/soc`
 - `LAB_MODE=insecure` for intentionally weak local lab behavior
 - `LAB_MODE=secure` for generic failures and simple login lockout
@@ -212,6 +216,9 @@ server-side fetch flow on `/fetch`, a security misconfiguration flow on the
 a logging & alerting failure flow on the authenticated `/admin/role` action, all
 in insecure mode, and an unsafe serialized profile import flow on
 `/profile/import`.
-The checkout flow on `/checkout` demonstrates client-controlled price abuse in
-insecure mode. Future scenarios should keep vulnerable and secure behavior
-clearly separated.
+The checkout flow on `/checkout` demonstrates client-controlled price abuse, the
+entitlement flow on `/entitlement` demonstrates a fail-open mishandled exception
+that leaks a stack trace, and the component sync flow on `/integrations`
+demonstrates installing a third-party component without verifying its integrity,
+all in insecure mode. Future scenarios should keep vulnerable and secure
+behavior clearly separated.

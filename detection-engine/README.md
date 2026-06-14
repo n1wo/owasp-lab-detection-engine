@@ -97,6 +97,14 @@ privileged client-controlled fields such as `role`). Severity is High.
 `business_logic_abuse_pattern` (a checkout request submitted a client-controlled
 final total below the server-calculated minimum). Severity is High.
 
+`FAIL-OPEN-001` detects `exception_handling` events where `signal` is
+`fail_open_pattern` (an entitlement check raised, and insecure mode swallowed the
+error, granted access anyway, and leaked the stack trace). Severity is High.
+
+`SUPPLY-CHAIN-001` detects `dependency_load` events where `signal` is
+`supply_chain_compromise_pattern` (a third-party component was installed without
+verifying its integrity hash against the pinned baseline). Severity is High.
+
 All rules emit:
 
 - `rule_id`

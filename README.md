@@ -85,10 +85,10 @@ This project demonstrates:
 
 | Component | Purpose | Path |
 | --- | --- | --- |
-| Vulnerable App | Local Flask app that generates login, search, and comment telemetry | `vulnerable-app/` |
+| Vulnerable App | Local Flask app that generates telemetry across twelve OWASP-oriented scenarios | `vulnerable-app/` |
 | Logs | JSONL security telemetry | `logs/` |
 | Detection Engine | Parses logs and produces findings | `detection-engine/` |
-| Demo Scripts | Generate local brute-force, SQLi-like, and XSS-like demo activity | `scripts/` |
+| Demo Scripts | Generate local brute-force, SQLi-like, XSS-like, and logging-failure demo activity | `scripts/` |
 | Documentation | Architecture, detection rules, demo walkthrough | `docs/` |
 | Tests | App, parser, detection, and demo tests | `tests/` |
 
@@ -119,6 +119,7 @@ flowchart LR
 |   |-- architecture.md
 |   |-- demo.md
 |   |-- detection-rules.md
+|   |-- mitre-attack-mapping.md
 |   `-- threat-model.md
 |-- logs/                             # Sample and generated JSONL telemetry
 |   |-- README.md

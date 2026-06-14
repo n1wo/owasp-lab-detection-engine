@@ -249,6 +249,48 @@ from server-side item data:
 This scenario models insecure design as a broken workflow decision rather than
 an input parsing flaw. No payment is processed and no order is persisted.
 
+## Current Mishandling of Exceptional Conditions Scenario
+
+In `LAB_MODE=insecure`, the local `/entitlement` route mishandles an error
+raised while verifying a premium-entitlement token:
+
+- a malformed or tampered token makes the check raise, and the exception is
+  swallowed so the check fails open and premium access is granted anyway
+- the raw stack trace is returned to the client
+- an `exception_handling` event is logged with `signal=fail_open_pattern` and
+  `reason=fail_open_on_exception`
+
+In `LAB_MODE=secure`, the same error fails closed:
+
+- access is denied with HTTP `403` and a generic message, and no internal detail
+  leaks
+- the event logs with `reason=fail_closed_on_exception` and no signal, so safely
+  handled errors are not flagged
+
+This scenario models how a swallowed exception can turn into an access-control
+bypass. No entitlement is persisted and all tokens are fictional and local.
+
+## Current Software Supply Chain Scenario
+
+In `LAB_MODE=insecure`, the local `/integrations` route installs third-party
+components from a manifest without verifying their integrity:
+
+- each declared component is loaded even when its integrity hash does not match
+  the pinned baseline, so a tampered or swapped artifact is trusted
+- a `dependency_load` event is logged with
+  `signal=supply_chain_compromise_pattern` and
+  `reason=unverified_component_integrity`
+
+In `LAB_MODE=secure`, the same route verifies each component:
+
+- components whose integrity hash does not match the pinned baseline (or that are
+  unknown) are rejected with HTTP `400`
+- verified syncs log with `reason=verified_component_integrity` and no signal, so
+  a clean manifest is not flagged
+
+This scenario models trusting an unverified third-party component. No component
+is actually installed, and all manifests and hashes are fictional and local.
+
 ## Assumptions
 
 - The lab runs on a developer workstation or local container environment.
